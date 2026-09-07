@@ -100,3 +100,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] `Embedder` abstraction + deterministic `FakeEmbedder` (bag-of-words); `cosineSimilarity`; `embedTranscriptChunks` embeds only unembedded chunks (idempotent, no re-embedding unchanged text = cost control); `semanticSearch` embeds the query and ranks chunks by cosine, scoped by course. Semantic ranking verified (closest chunk first).
 - [needs-creds] The real embedder = Gemma via the inference service (PR 12). Swap `FakeEmbedder` for it; no interface change.
 - Engineering note: embeddings are stored as a float array (jsonb) for portability/testability. PRODUCTION SCALING: switch the column to pgvector `vector(<dim>)` + an HNSW index and change only the ranking SQL — the embed/search interface is unchanged. (PGlite 0.5.x doesn't bundle pgvector, which is why the test path uses app-side cosine.)
+
+## PR 11c — Hierarchical summaries (migration 0009; no UI)
+- [auto] `summaries` table with scope section/session/course + a `key` for idempotent upsert. `buildTranscriptSummaries` writes a section summary per chunk + one session/lecture summary; `buildCourseSummary` rolls session summaries up into a course summary. Deterministic (truncation/roll-up), idempotent re-runs.
+- [needs-creds] Real LLM summaries (Gemma, PR 12) replace the truncated text later — same table, `metadata.method` records provenance.
+- [manual] After summarizing a couple of lectures in a course, confirm the course summary mentions content from each lecture, and re-running doesn't duplicate rows.
