@@ -1,0 +1,59 @@
+{
+  "$ref": "#/definitions/event-envelope",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "event-envelope": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": {},
+          "default": {},
+          "type": "object"
+        },
+        "source": {
+          "enum": [
+            "canvas",
+            "google",
+            "outlook",
+            "deepgram",
+            "manual",
+            "system"
+          ],
+          "type": "string"
+        },
+        "subject_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "subject_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "occurred_at",
+        "idempotency_key",
+        "trace_id",
+        "source"
+      ],
+      "type": "object"
+    }
+  }
+}

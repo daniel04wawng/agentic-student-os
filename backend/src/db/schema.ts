@@ -7,8 +7,11 @@
  * PR 1 defines structure only. No query helpers or ORM live here yet.
  */
 
-export const PROVIDERS = ['canvas', 'google', 'outlook', 'deepgram', 'manual', 'system'] as const;
-export type Provider = (typeof PROVIDERS)[number];
+import { PROVIDERS, type Provider } from '@student-os/shared';
+
+// Provider vocabulary is shared (used by the event envelope too); re-exported
+// here so DB_ENUMS stays a single place. The drift test validates it vs the DB.
+export { PROVIDERS, type Provider };
 
 export const COURSE_STATUSES = ['upcoming', 'active', 'archived'] as const;
 export type CourseStatus = (typeof COURSE_STATUSES)[number];

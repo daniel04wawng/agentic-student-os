@@ -13,12 +13,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ZodType } from 'zod';
 import { HealthResponseSchema } from '../src/health.js';
+import { EventEnvelopeSchema } from '../src/events.js';
 
 export const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'generated');
 
 /** name -> schema. Add contracts here as later PRs introduce them. */
 const REGISTRY: Record<string, ZodType> = {
   'health-response': HealthResponseSchema,
+  'event-envelope': EventEnvelopeSchema,
 };
 
 /** JSON.stringify replacer that sorts object keys for stable output. */
