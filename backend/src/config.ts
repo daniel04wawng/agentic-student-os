@@ -19,6 +19,9 @@ const ConfigSchema = z.object({
   // is present, so the default backend has no unconfigured /api/inngest route.
   INNGEST_DEV: z.preprocess((v) => v === '1' || v === 'true', z.boolean()),
   INNGEST_SIGNING_KEY: z.string().min(1).optional(),
+  // Canvas (read-only ingestion). Both required to construct a live client.
+  CANVAS_BASE_URL: z.string().url().optional(),
+  CANVAS_API_TOKEN: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
