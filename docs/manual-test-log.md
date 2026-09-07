@@ -38,3 +38,9 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [manual] Confirm the client NEVER writes to Canvas (no submit/POST methods exist) and the token appears only in the Authorization header, never in URLs or logs.
 - Decision still open (does not block): Composio-managed Canvas connection vs the direct-token path. Direct is implemented; Composio is stubbed behind the same `CanvasClient` interface (factory throws "not configured"). Tell me which you want for production.
 - Known limitation: a Canvas HTTP error aborts the ingestion run (loud failure); wrapping ingestion in an Inngest workflow for retries/partial-progress is a later integration.
+
+## PR 5a — Canvas event projectors (events -> canonical tables; no UI)
+- [auto] `upsertCourseFromEvent` / `upsertAssignmentFromEvent` project discovery events into `courses` / `assignments`: insert once, update canonical fields (name/due/points) on re-projection, and PRESERVE our lifecycle `status` (a re-projection never resets an assignment from review_ready back to not_started). Metadata merge drops nulls so a later event never wipes stored fields (e.g. time_zone). Assignment projection resolves the course by `(source,source_id)` and throws if the course is not yet projected. End-to-end `ingestCanvas` + registered projectors populates both tables.
+- [needs-creds] With a real Canvas token: run ingestion, then confirm `courses` and `assignments` tables are populated (one row per Canvas object) and the course's IANA time zone is captured in `courses.metadata.time_zone`.
+- [manual] Set an assignment's `status` in the DB, re-run ingestion, and confirm the status is NOT reset (only canonical fields update).
+- Architecture note: Canvas CHANGES (e.g. a due date edited in Canvas) are not yet propagated, because discovery events are deduped by identity. Change propagation is reconciliation (PR 26) via update-type events with content-based idempotency keys.

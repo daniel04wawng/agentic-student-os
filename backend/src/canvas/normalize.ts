@@ -28,6 +28,7 @@ export function courseToEvent(
       code: course.course_code ?? null,
       term: course.term?.name ?? null,
       workflow_state: course.workflow_state ?? null,
+      time_zone: course.time_zone ?? null,
     },
   };
 }

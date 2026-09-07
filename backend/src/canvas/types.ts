@@ -15,6 +15,10 @@ export interface CanvasCourse {
   workflow_state?: string;
   term?: { name?: string } | null;
   enrollment_term_id?: number;
+  /** IANA time zone of the course; used by the deadline engine (PR 6). */
+  time_zone?: string;
+  /** Present only when requested with include[]=syllabus_body. */
+  syllabus_body?: string | null;
 }
 
 export interface CanvasAssignment {
