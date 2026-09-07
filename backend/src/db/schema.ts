@@ -141,5 +141,6 @@ export const TABLES = [
   'notifications',
   'recordings',
   'transcripts',
+  'transcript_chunks',
 ] as const;
 export type TableName = (typeof TABLES)[number];
