@@ -25,6 +25,9 @@ const ConfigSchema = z.object({
   // Postgres/Supabase connection. When present, the backend mounts the
   // DB-backed read/notification routes.
   DATABASE_URL: z.string().min(1).optional(),
+  // Local directory for audio blobs (dev). Production should use S3/Supabase
+  // Storage with presigned uploads instead.
+  RECORDINGS_DIR: z.string().min(1).default('./data/recordings'),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

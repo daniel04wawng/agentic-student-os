@@ -97,6 +97,9 @@ export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 export const NOTIFICATION_STATUSES = ['pending', 'delivered', 'failed', 'dismissed'] as const;
 export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
 
+export const RECORDING_STATUSES = ['pending', 'uploading', 'stored', 'failed'] as const;
+export type RecordingStatus = (typeof RECORDING_STATUSES)[number];
+
 /** Postgres enum type name -> ordered label list. Used by the drift test. */
 export const DB_ENUMS = {
   provider: PROVIDERS,
@@ -115,6 +118,7 @@ export const DB_ENUMS = {
   device_platform: DEVICE_PLATFORMS,
   notification_kind: NOTIFICATION_KINDS,
   notification_status: NOTIFICATION_STATUSES,
+  recording_status: RECORDING_STATUSES,
 } as const satisfies Record<string, readonly string[]>;
 
 /** Canonical table names in the world-state schema. */
@@ -131,5 +135,6 @@ export const TABLES = [
   'course_profiles',
   'devices',
   'notifications',
+  'recordings',
 ] as const;
 export type TableName = (typeof TABLES)[number];

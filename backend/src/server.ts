@@ -4,12 +4,16 @@ import type { Config } from './config.js';
 import type { SqlClient } from './db/client.js';
 import { registerInngest } from './inngest/serve.js';
 import { registerApiRoutes } from './routes/api.js';
+import { registerRecordingRoutes } from './routes/recordings.js';
+import type { StorageProvider } from './storage/provider.js';
 import { traceMixin } from './logger.js';
 import { enterTraceContext, normalizeTraceId } from './trace.js';
 
 export interface ServerDeps {
   /** When provided, DB-backed read/notification routes are mounted. */
   db?: SqlClient;
+  /** When provided alongside `db`, audio recording routes are mounted. */
+  storage?: StorageProvider;
 }
 
 const SERVICE_NAME = 'backend';
@@ -45,6 +49,9 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
   // DB-backed read + notification routes, mounted only when a client is provided.
   if (deps.db) {
     registerApiRoutes(app, deps.db);
+    if (deps.storage) {
+      registerRecordingRoutes(app, deps.db, deps.storage);
+    }
   }
 
   // Trace foundation: derive one trace id per request, store it on the request,

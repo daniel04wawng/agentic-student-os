@@ -3,6 +3,7 @@ import pg from 'pg';
 import { loadConfig } from './config.js';
 import type { SqlClient } from './db/client.js';
 import { buildServer, type ServerDeps } from './server.js';
+import { LocalStorageProvider } from './storage/provider.js';
 
 /**
  * Load a local `.env` into process.env before reading config, so the documented
@@ -33,6 +34,9 @@ async function main(): Promise<void> {
   const deps: ServerDeps = {};
   if (config.DATABASE_URL) {
     deps.db = makeDbClient(config.DATABASE_URL);
+    // Dev default: local filesystem blob store. Swap for S3/Supabase Storage
+    // (presigned uploads) in production.
+    deps.storage = new LocalStorageProvider(config.RECORDINGS_DIR);
   }
   const app = buildServer(config, deps);
   await app.listen({ port: config.BACKEND_PORT, host: config.BACKEND_HOST });
