@@ -28,6 +28,13 @@ const ConfigSchema = z.object({
   // Local directory for audio blobs (dev). Production should use S3/Supabase
   // Storage with presigned uploads instead.
   RECORDINGS_DIR: z.string().min(1).default('./data/recordings'),
+  // Model provider selection. 'fake' is a deterministic stub; 'ollama' is the
+  // local on-device path; 'modal' is the hosted heavy-model path.
+  MODEL_PROVIDER: z.enum(['fake', 'ollama', 'modal']).default('fake'),
+  OLLAMA_URL: z.string().url().default('http://localhost:11434'),
+  MODEL_NAME: z.string().min(1).default('gemma2'),
+  MODAL_MODEL_URL: z.string().url().optional(),
+  MODAL_MODEL_TOKEN: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
