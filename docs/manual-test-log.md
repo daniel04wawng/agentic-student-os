@@ -95,3 +95,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## PR 11a — Retrieval: chunking + full-text search (migration 0007; no UI)
 - [auto] `chunkUtterances` groups diarized utterances under a char budget while preserving span timestamps (`chunkText` fallback for raw text). `indexTranscript` writes chunks with course/session context and is idempotent (re-index replaces). `fullTextSearch` uses a generated `tsvector` + `ts_rank` to return only the relevant chunks (not whole transcripts), scoped optionally by course.
 - [manual] After indexing a lecture transcript, search a keyword from it -> the matching chunk comes back ranked; an unrelated keyword returns nothing; the course filter excludes other courses' chunks. (Confirms "retrieve relevant context without loading entire transcripts".)
+
+## PR 11b — Embeddings + semantic search (migration 0008; no UI)
+- [auto] `Embedder` abstraction + deterministic `FakeEmbedder` (bag-of-words); `cosineSimilarity`; `embedTranscriptChunks` embeds only unembedded chunks (idempotent, no re-embedding unchanged text = cost control); `semanticSearch` embeds the query and ranks chunks by cosine, scoped by course. Semantic ranking verified (closest chunk first).
+- [needs-creds] The real embedder = Gemma via the inference service (PR 12). Swap `FakeEmbedder` for it; no interface change.
+- Engineering note: embeddings are stored as a float array (jsonb) for portability/testability. PRODUCTION SCALING: switch the column to pgvector `vector(<dim>)` + an HNSW index and change only the ranking SQL — the embed/search interface is unchanged. (PGlite 0.5.x doesn't bundle pgvector, which is why the test path uses app-side cosine.)
