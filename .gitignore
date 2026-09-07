@@ -1,0 +1,39 @@
+# ---- Node / TS ----
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+.npm/
+.eslintcache
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Xcode / Swift ----
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+*.xcworkspace/xcuserdata/
+Package.resolved
+
+# ---- OS / editor ----
+.DS_Store
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
