@@ -11,6 +11,8 @@ struct RootView: View {
                 .tabItem { Label("Review", systemImage: "tray.full") }
             DeadlinesView()
                 .tabItem { Label("Deadlines", systemImage: "calendar") }
+            RecorderView()
+                .tabItem { Label("Record", systemImage: "mic") }
             ContentView()
                 .tabItem { Label("Status", systemImage: "gauge") }
         }

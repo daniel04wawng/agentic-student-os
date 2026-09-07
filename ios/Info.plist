@@ -35,5 +35,7 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Student OS records lectures and meetings so it can transcribe and help you study.</string>
 </dict>
 </plist>
