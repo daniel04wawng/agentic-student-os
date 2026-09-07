@@ -7,6 +7,8 @@ describe('loadConfig', () => {
     expect(cfg.NODE_ENV).toBe('development');
     expect(cfg.BACKEND_PORT).toBe(3000);
     expect(cfg.LOG_LEVEL).toBe('info');
+    // Loopback by default so the dev server is not exposed on the LAN.
+    expect(cfg.BACKEND_HOST).toBe('127.0.0.1');
   });
 
   it('coerces a numeric port from a string', () => {

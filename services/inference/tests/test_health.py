@@ -40,13 +40,32 @@ def test_replaces_malformed_trace_id() -> None:
     assert res.json()["trace_id"] != "garbage"
 
 
-def test_local_model_matches_shared_schema_fields() -> None:
-    """Guard: the hand-maintained model must not drift from the canonical schema."""
+def _shape(props: dict[str, dict]) -> dict[str, dict]:
+    """Reduce each property to the structural essentials we require to match:
+    JSON type and enum members. Finer constraints (minLength, format, minimum)
+    are intentionally not mirrored by the loose runtime model, so we ignore them.
+    """
+    return {
+        name: {
+            "type": spec.get("type"),
+            "enum": sorted(spec["enum"]) if "enum" in spec else None,
+        }
+        for name, spec in props.items()
+    }
+
+
+def test_local_model_matches_shared_schema() -> None:
+    """Guard: the hand-maintained model must not drift from the canonical schema
+    in field set, JSON types, enum members, required-ness, or extra-field policy."""
     if not SHARED_SCHEMA.exists():
         # Generated during `npm run shared:generate`; skip if not present locally.
         return
     schema = json.loads(SHARED_SCHEMA.read_text())
     definition = schema.get("definitions", {}).get("health-response", schema)
-    schema_fields = set(definition.get("properties", {}).keys())
-    model_fields = set(HealthResponse.model_fields.keys())
-    assert model_fields == schema_fields
+    model_schema = HealthResponse.model_json_schema()
+
+    assert _shape(model_schema["properties"]) == _shape(definition["properties"])
+    assert set(model_schema.get("required", [])) == set(definition.get("required", []))
+    # extra="forbid" <-> additionalProperties:false
+    assert model_schema.get("additionalProperties") is False
+    assert definition.get("additionalProperties") is False

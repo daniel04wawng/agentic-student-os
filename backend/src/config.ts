@@ -12,6 +12,9 @@ const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   BACKEND_PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  // Loopback by default so the dev server is not exposed on the LAN. Deploy
+  // targets that must bind all interfaces set BACKEND_HOST=0.0.0.0 explicitly.
+  BACKEND_HOST: z.string().min(1).default('127.0.0.1'),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
