@@ -1,0 +1,32 @@
+import { z } from 'zod';
+
+/**
+ * Environment config for the backend. Validated once at startup so a
+ * missing/malformed var fails fast with a clear message instead of surfacing
+ * as an undefined deep in a handler.
+ *
+ * PR 0 keeps this to runtime basics only. Provider/DB vars are declared in
+ * `.env.example` but intentionally NOT required here until their PR wires them.
+ */
+const ConfigSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  BACKEND_PORT: z.coerce.number().int().positive().max(65535).default(3000),
+});
+
+export type Config = z.infer<typeof ConfigSchema>;
+
+/**
+ * Parse config from an env-like record (defaults to `process.env`).
+ * Throws a readable aggregated error when validation fails.
+ */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const parsed = ConfigSchema.safeParse(env);
+  if (!parsed.success) {
+    const details = parsed.error.issues
+      .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('\n');
+    throw new Error(`Invalid backend configuration:\n${details}`);
+  }
+  return parsed.data;
+}
