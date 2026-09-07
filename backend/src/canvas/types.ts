@@ -31,6 +31,19 @@ export interface CanvasAssignment {
   html_url?: string;
 }
 
+export interface CanvasModule {
+  id: number;
+  name: string;
+  position?: number;
+  items_count?: number;
+}
+
+export interface CanvasDiscussion {
+  id: number;
+  title: string;
+  posted_at?: string | null;
+}
+
 /** Normalized internal event names emitted from Canvas ingestion. */
 export const CANVAS_EVENT = {
   courseDiscovered: 'canvas.course.discovered',

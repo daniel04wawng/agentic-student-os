@@ -1,4 +1,10 @@
-import type { CanvasAssignment, CanvasCourse, CanvasUser } from './types.js';
+import type {
+  CanvasAssignment,
+  CanvasCourse,
+  CanvasDiscussion,
+  CanvasModule,
+  CanvasUser,
+} from './types.js';
 
 /** Injectable fetch so the client is testable without real network. */
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -19,6 +25,17 @@ export interface CanvasClient {
   listActiveCourses(): Promise<CanvasCourse[]>;
   getCourse(courseId: number): Promise<CanvasCourse>;
   listAssignments(courseId: number): Promise<CanvasAssignment[]>;
+}
+
+/**
+ * Extends the core read client with ancillary course-content reads used by
+ * onboarding. Kept separate so callers that only need the core objects are not
+ * forced to implement these.
+ */
+export interface CanvasContentClient extends CanvasClient {
+  listModules(courseId: number): Promise<CanvasModule[]>;
+  listDiscussions(courseId: number): Promise<CanvasDiscussion[]>;
+  listAnnouncements(courseId: number): Promise<CanvasDiscussion[]>;
 }
 
 export class CanvasError extends Error {
@@ -48,7 +65,7 @@ export interface DirectCanvasOptions {
 }
 
 /** Direct Canvas REST API implementation (Bearer token). */
-export class DirectCanvasClient implements CanvasClient {
+export class DirectCanvasClient implements CanvasContentClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly fetchImpl: FetchLike;
@@ -97,12 +114,30 @@ export class DirectCanvasClient implements CanvasClient {
   }
 
   async getCourse(courseId: number): Promise<CanvasCourse> {
-    const res = await this.get(`/api/v1/courses/${courseId}?include[]=term`);
+    const res = await this.get(
+      `/api/v1/courses/${courseId}?include[]=term&include[]=syllabus_body`,
+    );
     return (await res.json()) as CanvasCourse;
   }
 
   listAssignments(courseId: number): Promise<CanvasAssignment[]> {
     return this.getAll<CanvasAssignment>(`/api/v1/courses/${courseId}/assignments?per_page=100`);
+  }
+
+  listModules(courseId: number): Promise<CanvasModule[]> {
+    return this.getAll<CanvasModule>(`/api/v1/courses/${courseId}/modules?per_page=100`);
+  }
+
+  listDiscussions(courseId: number): Promise<CanvasDiscussion[]> {
+    return this.getAll<CanvasDiscussion>(
+      `/api/v1/courses/${courseId}/discussion_topics?per_page=100`,
+    );
+  }
+
+  listAnnouncements(courseId: number): Promise<CanvasDiscussion[]> {
+    return this.getAll<CanvasDiscussion>(
+      `/api/v1/courses/${courseId}/discussion_topics?only_announcements=true&per_page=100`,
+    );
   }
 }
 

@@ -35,7 +35,8 @@ export async function freshDb(): Promise<PGlite> {
 export async function resetDb(db: PGlite): Promise<void> {
   await db.exec(
     `TRUNCATE courses, people, sessions, assignments, projects,
-             deliverables, artifacts, admin_items, events RESTART IDENTITY CASCADE`,
+             deliverables, artifacts, admin_items, events, course_profiles
+     RESTART IDENTITY CASCADE`,
   );
 }
 

@@ -54,6 +54,22 @@ describe('DirectCanvasClient', () => {
     await expect(client.listActiveCourses()).rejects.toMatchObject({ status: 403 });
   });
 
+  it('reads modules and announcements from the course endpoints', async () => {
+    const urls: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
+      urls.push(url);
+      if (url.includes('/modules')) return jsonResponse([{ id: 1, name: 'Intro' }]);
+      return jsonResponse([{ id: 9, title: 'Welcome' }]); // announcements
+    };
+    const client = new DirectCanvasClient({ baseUrl: 'https://c', token: 't', fetchImpl });
+    const modules = await client.listModules(5);
+    const anns = await client.listAnnouncements(5);
+    expect(modules[0]!.name).toBe('Intro');
+    expect(anns[0]!.title).toBe('Welcome');
+    expect(urls.some((u) => u.includes('/courses/5/modules'))).toBe(true);
+    expect(urls.some((u) => u.includes('only_announcements=true'))).toBe(true);
+  });
+
   it('diagnose reports ok on 200 and not-ok on auth failure', async () => {
     const ok = new DirectCanvasClient({
       baseUrl: 'https://c',

@@ -44,3 +44,9 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [needs-creds] With a real Canvas token: run ingestion, then confirm `courses` and `assignments` tables are populated (one row per Canvas object) and the course's IANA time zone is captured in `courses.metadata.time_zone`.
 - [manual] Set an assignment's `status` in the DB, re-run ingestion, and confirm the status is NOT reset (only canonical fields update).
 - Architecture note: Canvas CHANGES (e.g. a due date edited in Canvas) are not yet propagated, because discovery events are deduped by identity. Change propagation is reconciliation (PR 26) via update-type events with content-based idempotency keys.
+
+## PR 5b — Course onboarding (migration 0003; no UI)
+- [auto] `onboardCourse` ingests a course + its assignments (via projectors), reads syllabus/modules/announcements/discussions best-effort, and writes a derived `course_profiles` row (profile + deterministic planning summary). Idempotent re-run keeps one course/profile and refreshes it. Best-effort: if modules/announcements are inaccessible (403), onboarding still succeeds with empty counts. Profile/summary builders are pure (no LLM): counts, module/announcement titles, syllabus excerpt (HTML stripped), and upcoming deadlines sorted with undated/past-due counts.
+- [needs-creds] With a real Canvas token: onboard a course id and confirm `courses`/`assignments` fill, a `course_profiles` row appears with a sensible syllabus excerpt + upcoming-deadline list, and re-onboarding updates `generated_at` without duplicating anything.
+- [manual] Confirm the profile is stored in `course_profiles` (derived), NOT written onto the canonical `courses` row.
+- Note: onboarding is deterministic aggregation only; it does NOT start any assignment work (that's PR 20). Richer LLM synthesis can layer on once the model layer (PR 12) exists.

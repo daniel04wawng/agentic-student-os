@@ -116,5 +116,6 @@ export const TABLES = [
   'artifacts',
   'admin_items',
   'events',
+  'course_profiles',
 ] as const;
 export type TableName = (typeof TABLES)[number];
