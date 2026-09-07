@@ -1,0 +1,8 @@
+# Minimal Supabase project config. The canonical schema lives in
+# supabase/migrations/*.sql and is applied with `supabase db push` (remote) or
+# `supabase start` (local, requires Docker). Tests do NOT use this file: they
+# apply the same migrations to an embedded PGlite instance (no Docker).
+project_id = "agentic-student-os"
+
+[db]
+major_version = 15

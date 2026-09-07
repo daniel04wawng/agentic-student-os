@@ -31,6 +31,10 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 Package.resolved
 
+# ---- Supabase local ----
+supabase/.branches/
+supabase/.temp/
+
 # ---- OS / editor ----
 .DS_Store
 *.log
