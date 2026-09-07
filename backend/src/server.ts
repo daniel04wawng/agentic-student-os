@@ -1,9 +1,16 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponseSchema, TRACE_HEADER, type HealthResponse } from '@student-os/shared';
 import type { Config } from './config.js';
+import type { SqlClient } from './db/client.js';
 import { registerInngest } from './inngest/serve.js';
+import { registerApiRoutes } from './routes/api.js';
 import { traceMixin } from './logger.js';
 import { enterTraceContext, normalizeTraceId } from './trace.js';
+
+export interface ServerDeps {
+  /** When provided, DB-backed read/notification routes are mounted. */
+  db?: SqlClient;
+}
 
 const SERVICE_NAME = 'backend';
 const VERSION = '0.0.0';
@@ -20,7 +27,7 @@ declare module 'fastify' {
  * `app.inject` without opening a socket. Fastify owns the pino instance; the
  * shared `traceMixin` injects the current trace id into every log line.
  */
-export function buildServer(config: Config): FastifyInstance {
+export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInstance {
   const startedAt = process.hrtime.bigint();
 
   const app = Fastify({
@@ -33,6 +40,11 @@ export function buildServer(config: Config): FastifyInstance {
   // backend has no /api/inngest route returning errors.
   if (config.INNGEST_DEV || config.INNGEST_SIGNING_KEY) {
     registerInngest(app);
+  }
+
+  // DB-backed read + notification routes, mounted only when a client is provided.
+  if (deps.db) {
+    registerApiRoutes(app, deps.db);
   }
 
   // Trace foundation: derive one trace id per request, store it on the request,

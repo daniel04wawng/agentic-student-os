@@ -22,6 +22,9 @@ const ConfigSchema = z.object({
   // Canvas (read-only ingestion). Both required to construct a live client.
   CANVAS_BASE_URL: z.string().url().optional(),
   CANVAS_API_TOKEN: z.string().min(1).optional(),
+  // Postgres/Supabase connection. When present, the backend mounts the
+  // DB-backed read/notification routes.
+  DATABASE_URL: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

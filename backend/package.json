@@ -15,6 +15,7 @@
     "@student-os/shared": "*",
     "fastify": "^5.1.0",
     "inngest": "^4.20.0",
+    "pg": "^8.23.0",
     "pino": "^9.5.0",
     "zod": "^3.23.8"
   },
@@ -22,6 +23,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@inngest/test": "^1.0.0",
     "@types/node": "^22.10.1",
+    "@types/pg": "^8.15.6",
     "tsx": "^4.19.2"
   }
 }

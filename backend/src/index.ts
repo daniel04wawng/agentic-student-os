@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
+import pg from 'pg';
 import { loadConfig } from './config.js';
-import { buildServer } from './server.js';
+import type { SqlClient } from './db/client.js';
+import { buildServer, type ServerDeps } from './server.js';
 
 /**
  * Load a local `.env` into process.env before reading config, so the documented
@@ -13,11 +15,26 @@ function loadDotEnv(): void {
   }
 }
 
+/** Adapt a pg Pool to the narrow SqlClient interface the app depends on. */
+function makeDbClient(databaseUrl: string): SqlClient {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  return {
+    async query<T>(text: string, params?: unknown[]): Promise<{ rows: T[] }> {
+      const res = await pool.query(text, params as unknown[] | undefined);
+      return { rows: res.rows as T[] };
+    },
+  };
+}
+
 /** Process entrypoint. Fail fast on bad config before opening a socket. */
 async function main(): Promise<void> {
   loadDotEnv();
   const config = loadConfig();
-  const app = buildServer(config);
+  const deps: ServerDeps = {};
+  if (config.DATABASE_URL) {
+    deps.db = makeDbClient(config.DATABASE_URL);
+  }
+  const app = buildServer(config, deps);
   await app.listen({ port: config.BACKEND_PORT, host: config.BACKEND_HOST });
 }
 
