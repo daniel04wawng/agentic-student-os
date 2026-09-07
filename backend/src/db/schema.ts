@@ -88,6 +88,15 @@ export type AdminKind = (typeof ADMIN_KINDS)[number];
 export const ADMIN_STATUSES = ['open', 'in_progress', 'done', 'dismissed'] as const;
 export type AdminStatus = (typeof ADMIN_STATUSES)[number];
 
+export const DEVICE_PLATFORMS = ['ios', 'web'] as const;
+export type DevicePlatform = (typeof DEVICE_PLATFORMS)[number];
+
+export const NOTIFICATION_KINDS = ['review_ready', 'deadline', 'admin', 'info'] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+export const NOTIFICATION_STATUSES = ['pending', 'delivered', 'failed', 'dismissed'] as const;
+export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
+
 /** Postgres enum type name -> ordered label list. Used by the drift test. */
 export const DB_ENUMS = {
   provider: PROVIDERS,
@@ -103,6 +112,9 @@ export const DB_ENUMS = {
   artifact_status: ARTIFACT_STATUSES,
   admin_kind: ADMIN_KINDS,
   admin_status: ADMIN_STATUSES,
+  device_platform: DEVICE_PLATFORMS,
+  notification_kind: NOTIFICATION_KINDS,
+  notification_status: NOTIFICATION_STATUSES,
 } as const satisfies Record<string, readonly string[]>;
 
 /** Canonical table names in the world-state schema. */
@@ -117,5 +129,7 @@ export const TABLES = [
   'admin_items',
   'events',
   'course_profiles',
+  'devices',
+  'notifications',
 ] as const;
 export type TableName = (typeof TABLES)[number];
