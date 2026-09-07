@@ -43,3 +43,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Xcode project parses
         run: xcodebuild -list -project ios/StudentOS.xcodeproj
+      - name: Build iOS app (simulator, no signing)
+        run: |
+          xcodebuild build \
+            -project ios/StudentOS.xcodeproj -scheme StudentOS \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO | tail -20

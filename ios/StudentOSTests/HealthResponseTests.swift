@@ -15,7 +15,9 @@ final class HealthResponseTests: XCTestCase {
         }
         """.data(using: .utf8)!
 
-        let health = try JSONDecoder().decode(HealthResponse.self, from: json)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let health = try decoder.decode(HealthResponse.self, from: json)
         XCTAssertEqual(health.status, .ok)
         XCTAssertEqual(health.service, "backend")
         XCTAssertEqual(health.traceId, "00000000-0000-0000-0000-000000000000")
