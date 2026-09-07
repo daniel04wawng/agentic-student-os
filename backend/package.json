@@ -14,11 +14,13 @@
   "dependencies": {
     "@student-os/shared": "*",
     "fastify": "^5.1.0",
+    "inngest": "^4.20.0",
     "pino": "^9.5.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@inngest/test": "^1.0.0",
     "@types/node": "^22.10.1",
     "tsx": "^4.19.2"
   }

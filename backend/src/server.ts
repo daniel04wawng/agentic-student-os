@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { HealthResponseSchema, TRACE_HEADER, type HealthResponse } from '@student-os/shared';
 import type { Config } from './config.js';
+import { registerInngest } from './inngest/serve.js';
 import { traceMixin } from './logger.js';
 import { enterTraceContext, normalizeTraceId } from './trace.js';
 
@@ -27,6 +28,12 @@ export function buildServer(config: Config): FastifyInstance {
   });
 
   app.decorateRequest('traceId', '');
+
+  // Mount the Inngest serve endpoint only when configured, so an unconfigured
+  // backend has no /api/inngest route returning errors.
+  if (config.INNGEST_DEV || config.INNGEST_SIGNING_KEY) {
+    registerInngest(app);
+  }
 
   // Trace foundation: derive one trace id per request, store it on the request,
   // bind it to the async context (so all logs correlate), and echo it back.

@@ -15,6 +15,10 @@ const ConfigSchema = z.object({
   // Loopback by default so the dev server is not exposed on the LAN. Deploy
   // targets that must bind all interfaces set BACKEND_HOST=0.0.0.0 explicitly.
   BACKEND_HOST: z.string().min(1).default('127.0.0.1'),
+  // Inngest: the serve endpoint is mounted only when dev mode or a signing key
+  // is present, so the default backend has no unconfigured /api/inngest route.
+  INNGEST_DEV: z.preprocess((v) => v === '1' || v === 'true', z.boolean()),
+  INNGEST_SIGNING_KEY: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
