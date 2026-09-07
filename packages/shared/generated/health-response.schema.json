@@ -1,0 +1,42 @@
+{
+  "$ref": "#/definitions/health-response",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "health-response": {
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "degraded"
+          ],
+          "type": "string"
+        },
+        "trace_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "uptime_s": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "service",
+        "version",
+        "trace_id",
+        "uptime_s"
+      ],
+      "type": "object"
+    }
+  }
+}
