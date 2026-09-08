@@ -4,8 +4,18 @@ import { getPermissionPolicy, isApproved } from '../approval/approval.js';
 import type { CanvasSubmitClient } from '../canvas/submit.js';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
+import type { GoogleDocsClient } from '../google/client.js';
 
 export const ASSIGNMENT_SUBMITTED = 'assignment.submitted';
+
+/** How to submit the artifact to Canvas. */
+export type SubmissionType = 'link' | 'text' | 'pdf';
+
+export interface SubmitOptions {
+  /** Defaults to 'link' (submit the Doc URL). 'text'/'pdf' need a Google client. */
+  submissionType?: SubmissionType;
+  google?: GoogleDocsClient;
+}
 
 export type SubmitOutcome =
   | { status: 'verified'; canvasSubmissionId: string }
@@ -21,14 +31,14 @@ interface Deps {
 async function submittableArtifact(
   db: SqlClient,
   assignmentId: string,
-): Promise<{ artifactId: string; uri: string | null } | null> {
-  const { rows } = await db.query<{ id: string; uri: string | null }>(
-    `SELECT a.id, a.uri FROM artifacts a JOIN deliverables d ON d.id = a.deliverable_id
+): Promise<{ artifactId: string; uri: string | null; docId: string | null } | null> {
+  const { rows } = await db.query<{ id: string; uri: string | null; source_id: string | null }>(
+    `SELECT a.id, a.uri, a.source_id FROM artifacts a JOIN deliverables d ON d.id = a.deliverable_id
      WHERE d.assignment_id = $1 AND a.status IN ('review_ready','approved')
      ORDER BY a.updated_at DESC LIMIT 1`,
     [assignmentId],
   );
-  return rows[0] ? { artifactId: rows[0].id, uri: rows[0].uri } : null;
+  return rows[0] ? { artifactId: rows[0].id, uri: rows[0].uri, docId: rows[0].source_id } : null;
 }
 
 /**
@@ -44,6 +54,7 @@ export async function submitAssignment(
   canvas: CanvasSubmitClient,
   deps: Deps,
   assignmentId: string,
+  opts: SubmitOptions = {},
 ): Promise<SubmitOutcome> {
   // Idempotent create of the submission record.
   await db.query(
@@ -78,15 +89,29 @@ export async function submitAssignment(
 
   await setStatus(db, assignmentId, 'submitting', { artifactId: artifact.artifactId });
 
+  const submissionType = opts.submissionType ?? 'link';
+  const args = { canvasCourseId, canvasAssignmentId, artifactUri: artifact.uri, text: '' };
+
   let canvasSubmissionId: string;
   try {
-    const res = await canvas.submit({
-      canvasCourseId,
-      canvasAssignmentId,
-      artifactUri: artifact.uri,
-      text: '',
-    });
-    canvasSubmissionId = res.canvasSubmissionId;
+    if (submissionType === 'pdf') {
+      if (!opts.google || !artifact.docId) return refuse(db, assignmentId, 'pdf_needs_google_doc');
+      const bytes = await opts.google.exportPdf(artifact.docId);
+      const res = await canvas.submitFile(args, {
+        bytes,
+        filename: `assignment-${assignmentId}.pdf`,
+        contentType: 'application/pdf',
+      });
+      canvasSubmissionId = res.canvasSubmissionId;
+    } else if (submissionType === 'text') {
+      if (!opts.google || !artifact.docId) return refuse(db, assignmentId, 'text_needs_google_doc');
+      const text = await opts.google.getContent(artifact.docId);
+      const res = await canvas.submit({ ...args, text });
+      canvasSubmissionId = res.canvasSubmissionId;
+    } else {
+      const res = await canvas.submit(args);
+      canvasSubmissionId = res.canvasSubmissionId;
+    }
   } catch (err) {
     return fail(db, assignmentId, err instanceof Error ? err.message : String(err));
   }

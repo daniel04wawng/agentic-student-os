@@ -94,6 +94,20 @@ describe('submitAssignment', () => {
     expect(asg.rows[0]!.status).not.toBe('submitted');
   });
 
+  it('submits as a PDF via file upload when requested', async () => {
+    const { assignmentId, artifactId } = await reviewReady();
+    await approveArtifact(db, { assignmentId, artifactId, actor: 'user' });
+    const canvas = new FakeCanvasSubmitClient();
+    const outcome = await submitAssignment(db, canvas, { bus }, assignmentId, {
+      submissionType: 'pdf',
+      google,
+    });
+    expect(outcome.status).toBe('verified');
+    expect(canvas.files).toHaveLength(1);
+    expect(canvas.files[0]!.filename).toContain('.pdf');
+    expect(canvas.files[0]!.size).toBeGreaterThan(0);
+  });
+
   it('permits submission without approval under an auto policy', async () => {
     const { assignmentId } = await reviewReady();
     await db.query(

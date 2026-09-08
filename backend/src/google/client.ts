@@ -17,6 +17,8 @@ export interface GoogleDocsClient {
   updateDoc(id: string, content: string): Promise<GoogleDoc>;
   getRevision(id: string): Promise<string>;
   getContent(id: string): Promise<string>;
+  /** Export the doc as PDF bytes (Drive files.export in the real client). */
+  exportPdf(id: string): Promise<Buffer>;
 }
 
 /** In-memory fake for tests: a monotonically increasing revision per doc. */
@@ -47,6 +49,13 @@ export class FakeGoogleDocsClient implements GoogleDocsClient {
     const doc = this.docs.get(id);
     if (!doc) throw new Error(`doc not found: ${id}`);
     return doc.content;
+  }
+
+  async exportPdf(id: string): Promise<Buffer> {
+    const doc = this.docs.get(id);
+    if (!doc) throw new Error(`doc not found: ${id}`);
+    // Minimal valid-ish PDF header + the doc text, enough for tests/round-trips.
+    return Buffer.from(`%PDF-1.4\n${doc.content}\n%%EOF`);
   }
 
   private doc(id: string): GoogleDoc {
@@ -80,6 +89,9 @@ export class UnconfiguredGoogleDocsClient implements GoogleDocsClient {
     throw new GoogleNotConfiguredError();
   }
   async getContent(): Promise<string> {
+    throw new GoogleNotConfiguredError();
+  }
+  async exportPdf(): Promise<Buffer> {
     throw new GoogleNotConfiguredError();
   }
 }

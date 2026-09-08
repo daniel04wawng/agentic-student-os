@@ -10,8 +10,16 @@ export interface SubmitArgs {
   text: string;
 }
 
+export interface SubmitFile {
+  bytes: Buffer;
+  filename: string;
+  contentType: string;
+}
+
 export interface CanvasSubmitClient {
   submit(args: SubmitArgs): Promise<{ canvasSubmissionId: string }>;
+  /** Submit a file (e.g. an exported PDF) via Canvas online_upload. */
+  submitFile(args: SubmitArgs, file: SubmitFile): Promise<{ canvasSubmissionId: string }>;
   /** Read back the submission to VERIFY the write actually landed. */
   getSubmission(canvasCourseId: string, canvasAssignmentId: string): Promise<{ id: string } | null>;
 }
@@ -23,6 +31,8 @@ export class FakeCanvasSubmitClient implements CanvasSubmitClient {
 
   constructor(private readonly opts: { failVerify?: boolean } = {}) {}
 
+  files: { filename: string; size: number }[] = [];
+
   async submit(args: SubmitArgs): Promise<{ canvasSubmissionId: string }> {
     this.submitCount += 1;
     const id = `sub-${this.submitCount}`;
@@ -30,6 +40,11 @@ export class FakeCanvasSubmitClient implements CanvasSubmitClient {
       this.store.set(`${args.canvasCourseId}:${args.canvasAssignmentId}`, id);
     }
     return { canvasSubmissionId: id };
+  }
+
+  async submitFile(args: SubmitArgs, file: SubmitFile): Promise<{ canvasSubmissionId: string }> {
+    this.files.push({ filename: file.filename, size: file.bytes.length });
+    return this.submit(args);
   }
 
   async getSubmission(courseId: string, assignmentId: string): Promise<{ id: string } | null> {
@@ -74,6 +89,39 @@ export class DirectCanvasSubmitClient implements CanvasSubmitClient {
     return { canvasSubmissionId: String(body.id ?? '') };
   }
 
+  async submitFile(args: SubmitArgs, file: SubmitFile): Promise<{ canvasSubmissionId: string }> {
+    const auth = { Authorization: `Bearer ${this.token}` };
+    const base = `${this.baseUrl}/api/v1/courses/${args.canvasCourseId}/assignments/${args.canvasAssignmentId}`;
+
+    // Step 1: request an upload slot.
+    const init = await this.fetchImpl(`${base}/submissions/self/files`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: file.filename, size: file.bytes.length, content_type: file.contentType }),
+    });
+    if (!init.ok) throw new Error(`Canvas upload init ${init.status}`);
+    const slot = (await init.json()) as { upload_url: string; upload_params?: Record<string, string> };
+
+    // Step 2: upload the bytes to the returned URL.
+    const form = new FormData();
+    for (const [k, v] of Object.entries(slot.upload_params ?? {})) form.append(k, v);
+    form.append('file', new Blob([new Uint8Array(file.bytes)], { type: file.contentType }), file.filename);
+    const up = await this.fetchImpl(slot.upload_url, { method: 'POST', body: form });
+    if (!up.ok) throw new Error(`Canvas file upload ${up.status}`);
+    const uploaded = (await up.json()) as { id?: number | string };
+    const fileId = uploaded.id;
+
+    // Step 3: submit referencing the uploaded file.
+    const res = await this.fetchImpl(`${base}/submissions`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ submission: { submission_type: 'online_upload', file_ids: [fileId] } }),
+    });
+    if (!res.ok) throw new Error(`Canvas submit ${res.status}`);
+    const body = (await res.json()) as { id?: number | string };
+    return { canvasSubmissionId: String(body.id ?? '') };
+  }
+
   async getSubmission(courseId: string, assignmentId: string): Promise<{ id: string } | null> {
     const res = await this.fetchImpl(
       `${this.baseUrl}/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions/self`,
@@ -98,6 +146,9 @@ export class CanvasSubmitNotConfiguredError extends Error {
 
 export class UnconfiguredCanvasSubmitClient implements CanvasSubmitClient {
   async submit(): Promise<{ canvasSubmissionId: string }> {
+    throw new CanvasSubmitNotConfiguredError();
+  }
+  async submitFile(): Promise<{ canvasSubmissionId: string }> {
     throw new CanvasSubmitNotConfiguredError();
   }
   async getSubmission(): Promise<{ id: string } | null> {
