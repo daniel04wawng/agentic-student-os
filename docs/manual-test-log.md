@@ -142,3 +142,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## PR 19 — Contextual writing retrieval (migration 0012; no UI)
 - [auto] Deterministic style features (avg sentence length, type-token ratio, formality). `addWritingSample` stores samples with course/professor/deliverable-kind scoping + a weight. `buildStyleProfile` computes a weighted-average style profile, weighting closer contextual matches more (course 2x, kind/professor 1.5x). `recordEditSignal` stores the user's edited text as a LOW-weight (0.2) 'self' sample; a lone edit only nudges the profile (proven bounded), so there's no global over-learning from one edit.
 - [manual] Confirm the style profile for a course leans toward that course's/professor's samples, and that editing one draft doesn't swing the whole profile.
+
+## PR 20 — Assignment generation (no UI; NO Canvas submit)
+- [auto] Pipeline: draft (model + deterministic fallback) -> create Google Doc artifact -> critique -> revise (rebase-safe via safeAgentEdit) -> deterministic QA -> REVIEW_READY. INVARIANT enforced + tested: `transitionToReviewReady` throws unless a real artifact exists for the assignment (an assignment can never reach review_ready without an artifact). Emits `assignment.review_ready`. No Canvas submission.
+- [backfill: model + Google] Draft/critique/revise quality needs a real model; live Docs need Google OAuth. The full pipeline + QA gate + invariant + state transitions are tested with fakes/deterministic fallbacks.
+- [manual] Trigger generation for a context_ready assignment; confirm a Doc is created, the assignment reaches review_ready only with an artifact, and the artifact is marked review_ready.
