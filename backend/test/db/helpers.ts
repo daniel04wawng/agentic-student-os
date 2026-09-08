@@ -37,7 +37,7 @@ export async function resetDb(db: PGlite): Promise<void> {
     `TRUNCATE courses, people, sessions, assignments, projects,
              deliverables, artifacts, admin_items, events, course_profiles,
              devices, notifications, recordings, transcripts, transcript_chunks,
-             summaries, readiness_contracts, class_preps, writing_samples, review_packets, approvals
+             summaries, readiness_contracts, class_preps, writing_samples, review_packets, approvals, submissions
      RESTART IDENTITY CASCADE`,
   );
 }
