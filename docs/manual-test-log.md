@@ -118,3 +118,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## PR 14 — Main Student planner (no UI)
 - [auto] `gatherWorldState` (deterministic) reads active assignments. `generatePlan` asks the model for a structured plan (capability steps) and falls back to a DETERMINISTIC rule-based plan when the model is unusable (context_ready -> generate, upcoming not_started -> plan). `runPlan` emits `student.plan` + one `capability.requested` per step (capabilities executed by later PRs).
 - [backfill: model] Plan quality needs a real model; structure + deterministic fallback + event emission are fully tested with the fake.
+
+## PR 15 — Dynamic readiness contracts (migration 0010; no UI)
+- [auto] Deterministic. `createContract`/`reviseContract` store requirements (blocking vs optional). `evaluate` -> ready only when every blocking requirement is resolved; on first ready it promotes the assignment to `context_ready` (from pre-ready states only) and emits `assignment.context_ready` exactly once. `resolveByEvidence(key)` resolves matching requirements and re-evaluates only affected assignments; an unmatched key changes nothing. New evidence can ADD a blocking dependency (revision) that reverts readiness.
+- [manual] Assignment needing a future lecture stays pending until that lecture's evidence arrives, then fires context_ready once; an assignment with only optional context is ready immediately; an unrelated lecture doesn't trigger readiness.
+- No model needed (fully deterministic per the "don't run an LLM where deterministic logic works" invariant).

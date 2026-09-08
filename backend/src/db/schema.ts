@@ -106,6 +106,9 @@ export type TranscriptionStatus = (typeof TRANSCRIPTION_STATUSES)[number];
 export const SUMMARY_SCOPES = ['section', 'session', 'course'] as const;
 export type SummaryScope = (typeof SUMMARY_SCOPES)[number];
 
+export const READINESS_STATUSES = ['pending', 'ready'] as const;
+export type ReadinessStatus = (typeof READINESS_STATUSES)[number];
+
 /** Postgres enum type name -> ordered label list. Used by the drift test. */
 export const DB_ENUMS = {
   provider: PROVIDERS,
@@ -127,6 +130,7 @@ export const DB_ENUMS = {
   recording_status: RECORDING_STATUSES,
   transcription_status: TRANSCRIPTION_STATUSES,
   summary_scope: SUMMARY_SCOPES,
+  readiness_status: READINESS_STATUSES,
 } as const satisfies Record<string, readonly string[]>;
 
 /** Canonical table names in the world-state schema. */
@@ -147,5 +151,6 @@ export const TABLES = [
   'transcripts',
   'transcript_chunks',
   'summaries',
+  'readiness_contracts',
 ] as const;
 export type TableName = (typeof TABLES)[number];
