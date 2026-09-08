@@ -166,3 +166,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] `OutlookClient` abstraction (+ fake / unconfigured). Deterministic `classifyMessage` (scheduling/payment/form/email). `ingestOutlook` turns messages + calendar events into `admin_items` with classification, idempotent by (source, source_id). `draftReply` uses the model with a deterministic template fallback; drafting ONLY (sending is an approval-gated side effect).
 - [backfill: Microsoft account] Live email/calendar needs managed OAuth (Composio or Graph API). Classification/extraction/idempotency/drafting are tested against the fake.
 - [manual] After connecting Outlook, ingest -> admin items appear classified; re-ingest doesn't duplicate; a draft reply is generated but NOT sent without approval.
+
+## PR 25 — Manual chat control plane (migration 0016; no UI)
+- [auto] `parseCommand` (deterministic) parses pause/resume/defer-until/set-policy with global or course scope; switching policy to `auto` is flagged dangerous. `applyCommand` persists control state, scopes pause to a single course (course A paused doesn't pause B), and REFUSES a dangerous override without `confirmed:true` (needs_confirmation, no mutation) — applying only on confirmation. `isPaused` reflects course OR global pause.
+- [backfill: model (optional)] Deterministic keyword parsing covers the safety-critical commands; a model can enrich free-form NL later without changing the safe core.
+- [manual] "pause course X" / "resume" toggle proactive work for that scope; "set policy to auto" asks for confirmation before removing the review gate.

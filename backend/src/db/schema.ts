@@ -121,6 +121,9 @@ export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 export const SUBMISSION_STATUSES = ['pending', 'submitting', 'submitted', 'verified', 'failed'] as const;
 export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 
+export const CONTROL_SCOPES = ['global', 'course', 'assignment'] as const;
+export type ControlScope = (typeof CONTROL_SCOPES)[number];
+
 /** Postgres enum type name -> ordered label list. Used by the drift test. */
 export const DB_ENUMS = {
   provider: PROVIDERS,
@@ -147,6 +150,7 @@ export const DB_ENUMS = {
   writing_sample_source: WRITING_SAMPLE_SOURCES,
   approval_status: APPROVAL_STATUSES,
   submission_status: SUBMISSION_STATUSES,
+  control_scope: CONTROL_SCOPES,
 } as const satisfies Record<string, readonly string[]>;
 
 /** Canonical table names in the world-state schema. */
@@ -173,5 +177,6 @@ export const TABLES = [
   'review_packets',
   'approvals',
   'submissions',
+  'control_state',
 ] as const;
 export type TableName = (typeof TABLES)[number];
