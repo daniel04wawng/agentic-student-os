@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
 import type { SqlClient } from '../db/client.js';
+import { approveArtifact, isApproved } from '../approval/approval.js';
 import { dismissNotification, registerDevice } from '../notifications/service.js';
 import { getReviewPacket } from '../review/packet.js';
 import { getDeadlines, getReview, getToday } from '../views/queries.js';
@@ -62,6 +63,30 @@ export function registerApiRoutes(app: FastifyInstance, db: SqlClient): void {
     const packet = await getReviewPacket(db, params.id);
     if (!packet) return reply.code(404).send({ error: 'not_found' });
     return packet;
+  });
+
+  app.post('/artifacts/:id/approve', async (req, reply) => {
+    const params = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
+    if (!params) return reply;
+    const owner = await db.query<{ assignment_id: string }>(
+      `SELECT d.assignment_id FROM artifacts a JOIN deliverables d ON d.id = a.deliverable_id WHERE a.id = $1`,
+      [params.id],
+    );
+    if (owner.rows.length === 0 || !owner.rows[0]!.assignment_id) {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+    const result = await approveArtifact(db, {
+      assignmentId: owner.rows[0]!.assignment_id,
+      artifactId: params.id,
+      actor: 'user',
+    });
+    return { approved: true, ...result };
+  });
+
+  app.get('/artifacts/:id/approval', async (req, reply) => {
+    const params = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
+    if (!params) return reply;
+    return { approved: await isApproved(db, params.id) };
   });
 
   app.post('/notifications/:id/dismiss', async (req, reply) => {

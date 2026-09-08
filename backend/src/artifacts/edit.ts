@@ -1,3 +1,4 @@
+import { invalidateStaleApprovals } from '../approval/approval.js';
 import type { SqlClient } from '../db/client.js';
 import type { GoogleDocsClient } from '../google/client.js';
 
@@ -49,6 +50,9 @@ export async function safeAgentEdit(
      WHERE id = $1`,
     [artifactId, updated.revisionId, rebased],
   );
+
+  // Any post-approval modification invalidates the approval for the old version.
+  await invalidateStaleApprovals(db, artifactId);
 
   return { rebased, revision: updated.revisionId };
 }

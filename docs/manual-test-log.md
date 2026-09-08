@@ -151,3 +151,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## PR 21 — Review packets (migration 0013; no UI yet)
 - [auto] `buildReviewPacket` (deterministic) assembles a concise summary, main argument (first sentence), warnings (short_draft / no_source_citation), a reading-time review estimate, the artifact link + version, and source links from a REVIEW_READY artifact; idempotent per (assignment, artifact version); throws when there is no review_ready artifact. `GET /assignments/:id/review-packet` returns the stored packet (404 if none).
 - [manual] After an assignment reaches review_ready, fetch its review packet and confirm it shows a summary, main argument, warnings, an estimate, and the Doc link + version. (The iOS approval UI lands with PR 22 versioned approval.)
+
+## PR 22 — Versioned approval (migration 0014; CRITICAL)
+- [auto] `approveArtifact` records an approval tied to the artifact's exact remote_version. ANY post-approval modification (safeAgentEdit advances the version) invalidates the approval automatically (proven), retaining the invalidated row as an audit trail with reason `post_approval_modification`. `isApproved` is true only when an active approval matches the current version. Re-approval after a change is valid again. `getPermissionPolicy` defaults to `require_review`. Routes: `POST /artifacts/:id/approve`, `GET /artifacts/:id/approval`.
+- [manual] Approve a draft, then let the agent (or yourself) edit it -> the approval flips to invalid; the approvals table keeps the old approval as an audit record; re-approving the new version restores validity.
+- Note: the iOS approve button wires to POST /artifacts/:id/approve (UI polish can follow).
