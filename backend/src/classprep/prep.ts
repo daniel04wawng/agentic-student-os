@@ -169,6 +169,8 @@ const PREP_SYSTEM = [
   '  that support it. For a concepts topic, the correct approach or solution.',
   'Use only facts and numbers present in the materials; do not invent data. If the numbers',
   'needed are not present, say so in analysis rather than guessing.',
+  'Keep it focused so the JSON stays complete: analysis about 6-10 sentences, worked_answer',
+  'about 3-5 sentences, at most 6 key_points and at most 5 questions.',
 ].join(' ');
 
 async function generatePrep(db: SqlClient, model: ModelService, sessionId: string): Promise<Prep> {
@@ -177,7 +179,9 @@ async function generatePrep(db: SqlClient, model: ModelService, sessionId: strin
     { role: 'system', content: PREP_SYSTEM },
     { role: 'user', content: renderContext(context) },
   ];
-  return model.generateStructured({ messages, maxTokens: 3500 }, PrepSchema, {
+  // 2048 output tokens comfortably fits a bounded prep; the field-length limits
+  // in the prompt keep the JSON from being truncated before it closes.
+  return model.generateStructured({ messages, maxTokens: 2048 }, PrepSchema, {
     fallback: () => buildPrepDeterministic(context),
   });
 }
