@@ -114,3 +114,7 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## PR 13 — FunctionGemma local tool router (no UI)
 - [auto] `ToolRegistry` with permission tiers (local_read / local_write / remote_side_effect). `FunctionRouter` asks the local model for a `{name, arguments}` call, then DETERMINISTICALLY enforces: tool must exist, be within the allowed permission set (local_read only), and args must satisfy the tool's zod schema. A side-effect tool is DENIED without executing; bad args/unknown tool/unusable model output all decline safely.
 - [backfill: model] Real routing quality needs a local model (Ollama+gemma2). Logic + permission enforcement are fully tested with the fake model.
+
+## PR 14 — Main Student planner (no UI)
+- [auto] `gatherWorldState` (deterministic) reads active assignments. `generatePlan` asks the model for a structured plan (capability steps) and falls back to a DETERMINISTIC rule-based plan when the model is unusable (context_ready -> generate, upcoming not_started -> plan). `runPlan` emits `student.plan` + one `capability.requested` per step (capabilities executed by later PRs).
+- [backfill: model] Plan quality needs a real model; structure + deterministic fallback + event emission are fully tested with the fake.

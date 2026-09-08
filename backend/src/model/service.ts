@@ -1,4 +1,4 @@
-import type { ZodType } from 'zod';
+import type { ZodTypeAny, z } from 'zod';
 import { currentTraceId } from '../trace.js';
 import { hashRequest, type InferenceCache } from './cache.js';
 import {
@@ -39,9 +39,12 @@ export interface StructuredOptions<T> {
   retries?: number;
 }
 
-function tryParse<T>(text: string, schema: ZodType<T>): { ok: true; value: T } | { ok: false } {
+function tryParse<S extends ZodTypeAny>(
+  text: string,
+  schema: S,
+): { ok: true; value: z.infer<S> } | { ok: false } {
   try {
-    return { ok: true, value: schema.parse(JSON.parse(extractJson(text))) };
+    return { ok: true, value: schema.parse(JSON.parse(extractJson(text))) as z.infer<S> };
   } catch {
     return { ok: false };
   }
@@ -72,11 +75,11 @@ export class ModelService {
     return res;
   }
 
-  async generateStructured<T>(
+  async generateStructured<S extends ZodTypeAny>(
     req: ModelRequest,
-    schema: ZodType<T>,
-    opts: StructuredOptions<T> = {},
-  ): Promise<T> {
+    schema: S,
+    opts: StructuredOptions<z.infer<S>> = {},
+  ): Promise<z.infer<S>> {
     const key = hashRequest(req);
     const cached = this.deps.cache?.get(key);
     if (cached !== undefined) {
