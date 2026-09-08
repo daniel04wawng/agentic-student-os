@@ -7,6 +7,7 @@ import {
   CLASS_PREP_READY,
   buildPrepDeterministic,
   detectUpcomingClasses,
+  gatherPrepContext,
   prepareClass,
 } from '../../src/classprep/prep.js';
 import { freshDb, resetDb } from '../db/helpers.js';
@@ -54,10 +55,68 @@ describe('buildPrepDeterministic', () => {
       courseName: 'Bio',
       priorSummaries: ['s1', 's2', 's3'],
       readings: ['Chapter 1', 'Chapter 2'],
+      materials: [{ title: 'Case A', kind: 'case', text: 'revenue 500' }],
     });
     expect(prep.overview).toContain('Bio');
     expect(prep.prior_recap).toBe('s2 s3'); // last two
-    expect(prep.key_points).toEqual(['Chapter 1', 'Chapter 2']);
+    expect(prep.key_points).toEqual(['Chapter 1', 'Chapter 2', 'Case A']);
+    // No model in the deterministic path: worked sections stay empty, never faked.
+    expect(prep.analysis).toBe('');
+    expect(prep.worked_answer).toBe('');
+  });
+});
+
+async function sessionCourse(sessionId: string): Promise<string> {
+  const r = await db.query<{ course_id: string }>(`SELECT course_id FROM sessions WHERE id=$1`, [sessionId]);
+  return r.rows[0]!.course_id;
+}
+
+describe('gatherPrepContext', () => {
+  it('pulls materials cases-first and bounds their length', async () => {
+    const sessionId = await seedSession('2026-09-07T15:00:00Z');
+    const courseId = await sessionCourse(sessionId);
+    await db.query(
+      `INSERT INTO materials (course_id, kind, title, text, source, source_id) VALUES ($1,'reading','R',$2,'canvas','r1')`,
+      [courseId, 'reading body with enough length to pass the floor'],
+    );
+    await db.query(
+      `INSERT INTO materials (course_id, kind, title, text, source, source_id) VALUES ($1,'case','Big Case',$2,'canvas','c1')`,
+      [courseId, 'X'.repeat(50_000)], // huge; must be truncated
+    );
+    const ctx = await gatherPrepContext(db, sessionId);
+    expect(ctx.materials[0]!.kind).toBe('case'); // cases first
+    expect(ctx.materials[0]!.text.length).toBeLessThanOrEqual(9000); // per-material cap
+    expect(ctx.materials.map((m) => m.title)).toContain('R');
+  });
+});
+
+describe('prepareClass with a case', () => {
+  it('feeds material text to the model and stores the worked answer', async () => {
+    const sessionId = await seedSession('2026-09-07T15:00:00Z');
+    const courseId = await sessionCourse(sessionId);
+    await db.query(
+      `INSERT INTO materials (course_id, kind, title, text, source, source_id) VALUES ($1,'case','Widget Co',$2,'canvas','c9')`,
+      [courseId, 'Widget Co revenue is 500 and cost is 300.'],
+    );
+    let seenPrompt = '';
+    const capturing = new ModelService(
+      new FakeModelProvider((req) => {
+        seenPrompt = req.messages.map((m) => m.content).join('\n');
+        return JSON.stringify({
+          overview: 'Widget Co decision',
+          analysis: 'Profit = 500 - 300 = 200.',
+          worked_answer: 'Recommend entering: profit of 200.',
+        });
+      }),
+    );
+    await prepareClass(db, bus, capturing, sessionId);
+    expect(seenPrompt).toContain('revenue is 500'); // real case text reached the model
+    const row = await db.query<{ content: { analysis: string; worked_answer: string } }>(
+      `SELECT content FROM class_preps WHERE session_id=$1`,
+      [sessionId],
+    );
+    expect(row.rows[0]!.content.analysis).toContain('200');
+    expect(row.rows[0]!.content.worked_answer).toContain('Recommend');
   });
 });
 

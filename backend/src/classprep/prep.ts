@@ -14,8 +14,16 @@ export const PrepSchema = z.object({
   prior_recap: z.string().default(''),
   key_points: z.array(z.string()).default([]),
   questions: z.array(z.string()).default([]),
+  /** Worked reasoning through the material: for a case, the relevant numbers and calculations; for a concepts/programming topic, the mechanics worked with concrete examples. */
+  analysis: z.string().default(''),
+  /** The bottom line: for a case, the recommended decision with its supporting numbers; for a concepts topic, the correct approach/solution. */
+  worked_answer: z.string().default(''),
 });
 export type Prep = z.infer<typeof PrepSchema>;
+
+/** Per-material and total caps on how much material text is fed to the model. */
+const PER_MATERIAL_CHARS = 9000;
+const TOTAL_MATERIAL_CHARS = 18000;
 
 export interface UpcomingClass {
   session_id: string;
@@ -44,13 +52,26 @@ export async function detectUpcomingClasses(
   return rows;
 }
 
+export interface PrepMaterial {
+  title: string | null;
+  kind: string;
+  text: string;
+}
+
 export interface PrepContext {
   courseName: string | null;
   priorSummaries: string[];
   readings: string[];
+  /** Actual case/reading text for the session's course, bounded for the model. */
+  materials: PrepMaterial[];
 }
 
-/** Deterministic gathering of prior-lecture summaries + readings for a session. */
+/**
+ * Deterministic gathering of prep context for a session: prior-lecture
+ * summaries, module/reading titles, and the actual materials text (cases first).
+ * Material text is bounded per-item and in total so a huge case never blows the
+ * model's context window; the model works from what fits.
+ */
 export async function gatherPrepContext(db: SqlClient, sessionId: string): Promise<PrepContext> {
   const ctx = await db.query<{ course_id: string | null; course_name: string | null }>(
     `SELECT s.course_id, c.name AS course_name FROM sessions s
@@ -71,35 +92,92 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
         [courseId],
       )
     : { rows: [] as { titles: string[] | null }[] };
+  // Cases first (they carry the numbers to work), then other materials.
+  const materialRows = courseId
+    ? await db.query<{ title: string | null; kind: string; text: string }>(
+        `SELECT title, kind, text FROM materials
+         WHERE course_id = $1 AND (session_id = $2 OR session_id IS NULL) AND length(text) >= 20
+         ORDER BY (kind = 'case') DESC, updated_at DESC`,
+        [courseId, sessionId],
+      )
+    : { rows: [] as { title: string | null; kind: string; text: string }[] };
+
+  const materials: PrepMaterial[] = [];
+  let budget = TOTAL_MATERIAL_CHARS;
+  for (const r of materialRows.rows) {
+    if (budget <= 0) break;
+    const take = Math.min(r.text.length, PER_MATERIAL_CHARS, budget);
+    materials.push({ title: r.title, kind: r.kind, text: r.text.slice(0, take) });
+    budget -= take;
+  }
+
   return {
     courseName: ctx.rows[0]?.course_name ?? null,
     priorSummaries: summaries.rows.map((r) => r.text),
     readings: readings.rows[0]?.titles ?? [],
+    materials,
   };
 }
 
 /** Deterministic prep assembled from context (fallback / no-LLM path). */
 export function buildPrepDeterministic(context: PrepContext): Prep {
+  const materials = context.materials ?? [];
+  const materialTitles = materials.map((m) => m.title ?? m.kind);
   return {
-    overview: `Prep for ${context.courseName ?? 'class'} based on ${context.priorSummaries.length} prior session(s).`,
+    overview: `Prep for ${context.courseName ?? 'class'} based on ${context.priorSummaries.length} prior session(s) and ${materials.length} material(s).`,
     prior_recap: context.priorSummaries.slice(-2).join(' '),
-    key_points: context.readings.slice(0, 5),
+    key_points: [...context.readings.slice(0, 5), ...materialTitles].slice(0, 6),
     questions: [],
+    // No model available: we cannot work the numbers, so leave the worked
+    // sections empty rather than fabricate an answer.
+    analysis: '',
+    worked_answer: '',
   };
 }
+
+/** Render the gathered context into a single prompt the model reads. */
+function renderContext(context: PrepContext): string {
+  const parts: string[] = [`COURSE: ${context.courseName ?? 'Unknown'}`];
+  if (context.priorSummaries.length > 0) {
+    parts.push(`\nPRIOR LECTURE SUMMARIES:\n${context.priorSummaries.slice(-3).join('\n---\n')}`);
+  }
+  if (context.readings.length > 0) {
+    parts.push(`\nREADING / MODULE TITLES:\n- ${context.readings.join('\n- ')}`);
+  }
+  if (context.materials.length > 0) {
+    for (const m of context.materials) {
+      parts.push(`\nMATERIAL (${m.kind}): ${m.title ?? 'untitled'}\n${m.text}`);
+    }
+  } else {
+    parts.push('\n(No case/reading text is available for this session.)');
+  }
+  return parts.join('\n');
+}
+
+const PREP_SYSTEM = [
+  'You prepare a student for an upcoming class. Read the prior-lecture summaries and the',
+  'provided course materials (which may be a business case, an academic reading, or a',
+  'programming/concepts topic) and produce prep as JSON with these fields:',
+  '- overview: 2-3 sentences on what this class covers.',
+  '- prior_recap: what earlier sessions covered, if any.',
+  '- key_points: the essential ideas or facts to walk in knowing.',
+  '- questions: questions the student should be ready to discuss or answer in class.',
+  '- analysis: work THROUGH the material in detail. For a business case, identify the',
+  '  decision and work the relevant numbers step by step (use the actual figures from the',
+  '  case). For a concepts or programming topic, work the mechanics with concrete examples.',
+  '- worked_answer: the bottom line. For a case, your recommended decision and the numbers',
+  '  that support it. For a concepts topic, the correct approach or solution.',
+  'Use only facts and numbers present in the materials; do not invent data. If the numbers',
+  'needed are not present, say so in analysis rather than guessing.',
+].join(' ');
 
 async function generatePrep(db: SqlClient, model: ModelService, sessionId: string): Promise<Prep> {
   const context = await gatherPrepContext(db, sessionId);
   const messages: ModelMessage[] = [
-    {
-      role: 'system',
-      content:
-        'Create class prep as JSON {"overview","prior_recap","key_points":[],"questions":[]} ' +
-        'from the prior lecture summaries and readings.',
-    },
-    { role: 'user', content: JSON.stringify(context) },
+    { role: 'system', content: PREP_SYSTEM },
+    { role: 'user', content: renderContext(context) },
   ];
-  return model.generateStructured({ messages }, PrepSchema, {
+  return model.generateStructured({ messages, maxTokens: 3500 }, PrepSchema, {
     fallback: () => buildPrepDeterministic(context),
   });
 }
