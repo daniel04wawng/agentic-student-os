@@ -176,3 +176,7 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] Retry queue: enqueue -> claim due -> failRetry with backoff -> `dead` after max attempts (surfaced, not lost). `reconcileArtifacts` detects out-of-band Google edits (stored vs live revision), records drift, and invalidates stale approvals. `detectStaleState` finds items stuck in transient states (uploading/processing/submitting) past a threshold. `recoverySnapshot` summarizes failed/dead work across recordings/transcripts/submissions/notifications/retries.
 - [backfill: providers] Canvas/Outlook live reconciliation runs against real providers once connected; the artifact-drift path, retry queue, stale detection, and snapshot are fully tested.
 - [manual] Edit an artifact out of band -> reconciliation flags drift + invalidates approval; a stuck submission shows up in stale detection; the recovery snapshot counts failures.
+
+## PR 27 — Course archival (no UI)
+- [auto] `remainingDeliverables` / `detectCourseEndState` gate archival. `archiveCourse` refuses while deliverables remain (unless forced), then marks the course archived, PAUSES proactive workflows for it (control_state), archives completed assignments, and emits `course.archived`. Searchable memory (transcripts / chunks / summaries) is PRESERVED and still full-text searchable after archival (proven).
+- [manual] Archiving a course with pending work is refused; once everything is submitted, archival stops proactive work for that course but you can still search its lecture content.
