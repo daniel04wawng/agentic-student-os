@@ -162,5 +162,6 @@ export const TABLES = [
   'readiness_contracts',
   'class_preps',
   'writing_samples',
+  'review_packets',
 ] as const;
 export type TableName = (typeof TABLES)[number];

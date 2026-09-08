@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z, type ZodTypeAny } from 'zod';
 import type { SqlClient } from '../db/client.js';
 import { dismissNotification, registerDevice } from '../notifications/service.js';
+import { getReviewPacket } from '../review/packet.js';
 import { getDeadlines, getReview, getToday } from '../views/queries.js';
 
 /** Parse with a schema; on failure send 400 and return undefined. */
@@ -54,6 +55,14 @@ export function registerApiRoutes(app: FastifyInstance, db: SqlClient): void {
   });
 
   app.get('/review', async () => getReview(db));
+
+  app.get('/assignments/:id/review-packet', async (req, reply) => {
+    const params = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
+    if (!params) return reply;
+    const packet = await getReviewPacket(db, params.id);
+    if (!packet) return reply.code(404).send({ error: 'not_found' });
+    return packet;
+  });
 
   app.post('/notifications/:id/dismiss', async (req, reply) => {
     const params = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
