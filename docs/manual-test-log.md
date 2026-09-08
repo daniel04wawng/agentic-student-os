@@ -123,3 +123,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] Deterministic. `createContract`/`reviseContract` store requirements (blocking vs optional). `evaluate` -> ready only when every blocking requirement is resolved; on first ready it promotes the assignment to `context_ready` (from pre-ready states only) and emits `assignment.context_ready` exactly once. `resolveByEvidence(key)` resolves matching requirements and re-evaluates only affected assignments; an unmatched key changes nothing. New evidence can ADD a blocking dependency (revision) that reverts readiness.
 - [manual] Assignment needing a future lecture stays pending until that lecture's evidence arrives, then fires context_ready once; an assignment with only optional context is ready immediately; an unrelated lecture doesn't trigger readiness.
 - No model needed (fully deterministic per the "don't run an LLM where deterministic logic works" invariant).
+
+## PR 16 — Class prep (migration 0011; no UI)
+- [auto] `detectUpcomingClasses` finds sessions in a time window lacking a prep. `gatherPrepContext` (deterministic) pulls prior session summaries + readings. `prepareClass` synthesizes a prep (model + deterministic fallback), upserts one prep per session, creates a pre-class notification (deduped per session), and emits `class.prep.ready` once. Idempotent.
+- [backfill: model] Rich prep synthesis needs a real model; structure/context-gathering/notification/event are tested with the fake (deterministic fallback).
+- [manual] Before an upcoming class, confirm a prep artifact + a "Class prep ready" notification appear; re-running doesn't duplicate them.
