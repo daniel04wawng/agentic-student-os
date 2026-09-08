@@ -16,6 +16,7 @@ export interface GoogleDocsClient {
   createDoc(title: string, content: string): Promise<GoogleDoc>;
   updateDoc(id: string, content: string): Promise<GoogleDoc>;
   getRevision(id: string): Promise<string>;
+  getContent(id: string): Promise<string>;
 }
 
 /** In-memory fake for tests: a monotonically increasing revision per doc. */
@@ -40,6 +41,12 @@ export class FakeGoogleDocsClient implements GoogleDocsClient {
     const doc = this.docs.get(id);
     if (!doc) throw new Error(`doc not found: ${id}`);
     return String(doc.revision);
+  }
+
+  async getContent(id: string): Promise<string> {
+    const doc = this.docs.get(id);
+    if (!doc) throw new Error(`doc not found: ${id}`);
+    return doc.content;
   }
 
   private doc(id: string): GoogleDoc {
@@ -70,6 +77,9 @@ export class UnconfiguredGoogleDocsClient implements GoogleDocsClient {
     throw new GoogleNotConfiguredError();
   }
   async getRevision(): Promise<string> {
+    throw new GoogleNotConfiguredError();
+  }
+  async getContent(): Promise<string> {
     throw new GoogleNotConfiguredError();
   }
 }

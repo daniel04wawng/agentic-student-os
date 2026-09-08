@@ -133,3 +133,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] `GoogleDocsClient` abstraction (create/update/getRevision) with a `FakeGoogleDocsClient` (monotonic revisions). `createGoogleDocArtifact` creates a doc and registers an artifact capturing its URI, remote doc id (source_id), and remote revision (remote_version). `updateArtifactRemoteVersion` records new revisions. `UnconfiguredGoogleDocsClient` fails clearly until OAuth is connected.
 - [backfill: Google account] The real client needs a connected Google account (OAuth via Composio or the Google API). Once connected, creating an artifact should produce a real Doc and store its revision id.
 - Decision (does not block): Composio-managed Google OAuth vs direct Google API. Interface is identical; tell me which for production.
+
+## PR 18 — User-edit conflict handling (CRITICAL; no UI)
+- [auto] `safeAgentEdit` runs the agent's edit against the CURRENT remote content, so out-of-band user changes are always the base (user-wins). It detects when the remote revision moved since our last known revision, flags/records a rebase, advances `remote_version`, and — proven by an explicit overwrite-prevention test — NEVER discards the user's text (the agent change is additive/merged, not a replacement).
+- [backfill: Google account] The real diff/rebase runs against actual Google Docs revisions once OAuth is connected; logic is fully tested against the fake client.
+- [manual] Edit an agent-created Doc yourself, then trigger an agent edit; confirm your text is preserved and the change is merged, never overwritten; the artifact's `remote_version` advances and `metadata.last_rebased` is true.
