@@ -18,6 +18,7 @@ export function hashRequest(req: ModelRequest): string {
     temperature: req.temperature ?? null,
     maxTokens: req.maxTokens ?? null,
     model: req.model ?? null,
+    format: req.format ?? null,
   });
   return createHash('sha256').update(canonical).digest('hex');
 }

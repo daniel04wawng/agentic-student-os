@@ -180,3 +180,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## PR 27 — Course archival (no UI)
 - [auto] `remainingDeliverables` / `detectCourseEndState` gate archival. `archiveCourse` refuses while deliverables remain (unless forced), then marks the course archived, PAUSES proactive workflows for it (control_state), archives completed assignments, and emits `course.archived`. Searchable memory (transcripts / chunks / summaries) is PRESERVED and still full-text searchable after archival (proven).
 - [manual] Archiving a course with pending work is refused; once everything is submitted, archival stops proactive work for that course but you can still search its lecture content.
+
+## Model layer — live verified against Gemma 4 (gemma4:12b via Ollama)
+- [live] Confirmed end to end on Apple Silicon: plain generation, cache (150s -> 4ms), and SCHEMA-VALID structured output (real plan JSON, no fallback). Deterministic fallback also confirmed working as the safety net.
+- Fixes from live testing (fix commit): (1) structured calls now request Ollama constrained decoding by passing the zod schema as `format`; (2) `think:false` on Ollama requests because Gemma 4 is a reasoning model that otherwise puts the answer in a `thinking` field and leaves `content` empty; (3) default `num_predict` raised to 2048 so verbose JSON isn't truncated; (4) `format` included in the cache key.
+- [perf note] gemma4:12b is ~100-150s/call on this Mac (12B, cold-ish). For a snappier agent use a smaller variant (e.g. gemma4:e2b) or a smaller quant; quality of 12B is good. Config: `MODEL_PROVIDER=ollama`, `MODEL_NAME=gemma4:12b`.

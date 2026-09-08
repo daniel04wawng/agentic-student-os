@@ -1,4 +1,5 @@
 import type { ZodTypeAny, z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { currentTraceId } from '../trace.js';
 import { hashRequest, type InferenceCache } from './cache.js';
 import {
@@ -80,7 +81,12 @@ export class ModelService {
     schema: S,
     opts: StructuredOptions<z.infer<S>> = {},
   ): Promise<z.infer<S>> {
-    const key = hashRequest(req);
+    // Request schema-constrained decoding from providers that support it.
+    const jsonSchema = zodToJsonSchema(schema) as Record<string, unknown>;
+    delete jsonSchema.$schema;
+    const structuredReq: ModelRequest = { ...req, format: jsonSchema };
+
+    const key = hashRequest(structuredReq);
     const cached = this.deps.cache?.get(key);
     if (cached !== undefined) {
       const parsedCached = tryParse(cached, schema);
@@ -94,7 +100,7 @@ export class ModelService {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       try {
         const start = Date.now();
-        const res = await this.provider.generate(req);
+        const res = await this.provider.generate(structuredReq);
         this.trace(res.model, Date.now() - start, false);
         const parsed = tryParse(res.text, schema);
         if (parsed.ok) {

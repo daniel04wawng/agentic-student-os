@@ -14,6 +14,12 @@ export interface ModelRequest {
   temperature?: number;
   maxTokens?: number;
   model?: string;
+  /**
+   * Constrained output format. 'json' forces syntactically-valid JSON; a JSON
+   * Schema object requests schema-constrained decoding (Ollama structured
+   * outputs). Providers ignore what they do not support.
+   */
+  format?: 'json' | Record<string, unknown>;
 }
 
 export interface ModelResponse {

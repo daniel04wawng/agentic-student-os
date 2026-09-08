@@ -22,7 +22,13 @@ export class OllamaModelProvider implements ModelProvider {
           model: req.model ?? this.model,
           messages: req.messages,
           stream: false,
-          options: { temperature: req.temperature ?? 0 },
+          // Reasoning models (e.g. Gemma 4) otherwise emit chain-of-thought in a
+          // separate `thinking` field and leave `content` empty; disable it so the
+          // answer (and constrained JSON) lands in `content`.
+          think: false,
+          // Ollama structured outputs: 'json' or a JSON Schema for constrained decoding.
+          ...(req.format ? { format: req.format } : {}),
+          options: { temperature: req.temperature ?? 0, num_predict: req.maxTokens ?? 2048 },
         }),
       });
     } catch (err) {
