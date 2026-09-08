@@ -36,6 +36,20 @@ export interface CanvasModule {
   name: string;
   position?: number;
   items_count?: number;
+  items?: CanvasModuleItem[];
+}
+
+/**
+ * An item inside a module. For files, `type === 'File'` and `content_id` is the
+ * file id — the course-level `/files` list is often 403 for students, but
+ * `/files/:content_id` stays reachable through the module.
+ */
+export interface CanvasModuleItem {
+  id: number;
+  title?: string;
+  type: string;
+  content_id?: number;
+  url?: string;
 }
 
 export interface CanvasDiscussion {

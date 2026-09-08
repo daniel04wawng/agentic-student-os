@@ -42,6 +42,15 @@ export interface CanvasContentClient extends CanvasClient {
   listCalendarEvents(courseId: number, startDate: string, endDate: string): Promise<CanvasCalendarEvent[]>;
   /** Files posted in a course (readings/slides/cases the prof provides). */
   listFiles(courseId: number): Promise<CanvasFile[]>;
+  /** Fetch one file's metadata (download url, content-type, size) by id. */
+  getFile(courseId: number, fileId: number): Promise<CanvasFile>;
+  /**
+   * Files reachable through a course's module items. Ivey students get 403 on
+   * the `/files` collection but individual `/files/:id` reads still work, so we
+   * walk `modules?include[]=items` and resolve each File item. Falls back to
+   * this automatically inside {@link resolveCourseFiles}.
+   */
+  listFilesViaModules(courseId: number): Promise<CanvasFile[]>;
   /** Download a file's bytes (ephemeral; caller extracts text then discards). */
   downloadFile(url: string): Promise<Buffer>;
 }
@@ -157,11 +166,56 @@ export class DirectCanvasClient implements CanvasContentClient {
     return this.getAll<CanvasFile>(`/api/v1/courses/${courseId}/files?per_page=100`);
   }
 
+  async getFile(courseId: number, fileId: number): Promise<CanvasFile> {
+    const res = await this.get(`/api/v1/courses/${courseId}/files/${fileId}`);
+    return (await res.json()) as CanvasFile;
+  }
+
+  async listFilesViaModules(courseId: number): Promise<CanvasFile[]> {
+    const modules = await this.getAll<CanvasModule>(
+      `/api/v1/courses/${courseId}/modules?include[]=items&per_page=100`,
+    );
+    const fileIds: number[] = [];
+    for (const mod of modules) {
+      for (const item of mod.items ?? []) {
+        if (item.type === 'File' && item.content_id != null) fileIds.push(item.content_id);
+      }
+    }
+    const files: CanvasFile[] = [];
+    for (const id of [...new Set(fileIds)]) {
+      try {
+        files.push(await this.getFile(courseId, id));
+      } catch {
+        // A single unreadable file must not sink the whole course's materials.
+      }
+    }
+    return files;
+  }
+
   async downloadFile(url: string): Promise<Buffer> {
     // Canvas file URLs are pre-authenticated (verifier); the bearer is harmless.
     const res = await this.fetchImpl(url, { headers: { Authorization: `Bearer ${this.token}` } });
     if (!res.ok) throw new CanvasError(`Canvas download ${res.status}`, res.status);
     return Buffer.from(await res.arrayBuffer());
+  }
+}
+
+/**
+ * Best-effort file discovery for a course: try the `/files` collection, and on
+ * a 403 (Ivey disables it for students) fall back to walking module items. Any
+ * other error propagates. Returns [] when neither path yields files.
+ */
+export async function resolveCourseFiles(
+  client: CanvasContentClient,
+  courseId: number,
+): Promise<CanvasFile[]> {
+  try {
+    return await client.listFiles(courseId);
+  } catch (err) {
+    if (err instanceof CanvasError && err.status === 403) {
+      return client.listFilesViaModules(courseId);
+    }
+    throw err;
   }
 }
 

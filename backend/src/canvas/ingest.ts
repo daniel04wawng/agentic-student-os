@@ -71,3 +71,26 @@ export async function ingestCourseCalendar(
   }
   return { sessions: events.length };
 }
+
+/**
+ * Pull calendars for many courses in one pass (e.g. every non-removed course),
+ * so the general agenda covers any course that publishes class meetings. Each
+ * course is independent; one failing calendar does not stop the rest.
+ */
+export async function ingestCalendars(
+  client: CanvasContentClient,
+  bus: EventBus,
+  canvasCourseIds: number[],
+  opts: { startDate: string; endDate: string; traceId?: string; now?: () => string },
+): Promise<{ sessions: number; courses: number }> {
+  let sessions = 0;
+  for (const id of canvasCourseIds) {
+    try {
+      const r = await ingestCourseCalendar(client, bus, id, opts);
+      sessions += r.sessions;
+    } catch {
+      // A course with calendars disabled must not sink the batch.
+    }
+  }
+  return { sessions, courses: canvasCourseIds.length };
+}

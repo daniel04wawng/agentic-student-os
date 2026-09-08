@@ -18,4 +18,12 @@ describe('extractText', () => {
   it('detects PDF by magic bytes even without a content type', async () => {
     expect(await extractText(TINY_PDF, '')).toContain('Hello Case 42');
   });
+
+  it('strips NUL / control bytes that Postgres text cannot store', async () => {
+    // bytes: 'a', NUL(0), 'b', BEL(7), 'c', TAB(9), 'd', LF(10), 'e'
+    const dirty = Buffer.from([97, 0, 98, 7, 99, 9, 100, 10, 101]);
+    const out = await extractText(dirty, 'text/plain');
+    expect(out).toBe('abc\td\ne'); // NUL + BEL removed; tab + newline kept
+    expect(out.includes(String.fromCharCode(0))).toBe(false);
+  });
 });

@@ -39,7 +39,7 @@ export async function getDeadlines(db: SqlClient, q: DeadlineQuery): Promise<Dea
     `SELECT a.id, a.title, a.due_at, a.due_source_timezone,
             c.name AS course_name, c.metadata->>'time_zone' AS course_tz
      FROM assignments a JOIN courses c ON c.id = a.course_id
-     WHERE a.due_at IS NOT NULL AND a.due_at <= $1
+     WHERE a.due_at IS NOT NULL AND a.due_at <= $1 AND c.status <> 'archived'
      ORDER BY a.due_at ASC`,
     [horizonIso],
   );
@@ -59,6 +59,58 @@ export async function getDeadlines(db: SqlClient, q: DeadlineQuery): Promise<Dea
       }),
     };
   });
+}
+
+export interface AgendaItem {
+  type: 'class' | 'deadline';
+  when: string;
+  title: string;
+  course_name: string;
+}
+
+/**
+ * A single "when are things" timeline: class meetings (sessions) and assignment
+ * deadlines merged and sorted chronologically within a horizon. Removed
+ * (archived) courses are excluded. This answers the general calendar question
+ * across every course, not just ones that published Canvas calendar events.
+ */
+export async function getAgenda(
+  db: SqlClient,
+  q: { now: string; horizonDays?: number; pastDays?: number },
+): Promise<AgendaItem[]> {
+  const nowMs = Date.parse(q.now);
+  const fromBound = new Date(nowMs - (q.pastDays ?? 0) * 86_400_000).toISOString();
+  const toBound = new Date(nowMs + (q.horizonDays ?? 14) * 86_400_000).toISOString();
+
+  const classes = await db.query<{ when: unknown; title: string | null; course_name: string }>(
+    `SELECT s.starts_at AS when, s.title, c.name AS course_name
+     FROM sessions s JOIN courses c ON c.id = s.course_id
+     WHERE s.starts_at IS NOT NULL AND s.starts_at BETWEEN $1 AND $2
+       AND s.status <> 'canceled' AND c.status <> 'archived'`,
+    [fromBound, toBound],
+  );
+  const deadlines = await db.query<{ when: unknown; title: string; course_name: string }>(
+    `SELECT a.due_at AS when, a.title, c.name AS course_name
+     FROM assignments a JOIN courses c ON c.id = a.course_id
+     WHERE a.due_at IS NOT NULL AND a.due_at BETWEEN $1 AND $2 AND c.status <> 'archived'`,
+    [fromBound, toBound],
+  );
+
+  const items: AgendaItem[] = [
+    ...classes.rows.map((r) => ({
+      type: 'class' as const,
+      when: toIso(r.when),
+      title: r.title ?? r.course_name,
+      course_name: r.course_name,
+    })),
+    ...deadlines.rows.map((r) => ({
+      type: 'deadline' as const,
+      when: toIso(r.when),
+      title: r.title,
+      course_name: r.course_name,
+    })),
+  ];
+  return items.sort((a, b) => Date.parse(a.when) - Date.parse(b.when));
 }
 
 export interface ReviewView {
