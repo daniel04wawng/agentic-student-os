@@ -193,3 +193,7 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## Submission — PDF export + Canvas file-upload + submission-type switch
 - [auto] GoogleDocsClient.exportPdf (fake returns PDF bytes; real = Drive files.export, backfill). DirectCanvasSubmitClient.submitFile does the Canvas online_upload 3-step (request slot -> PUT bytes -> submit with file_ids), tested with mock fetch. submitAssignment now takes submissionType: 'link' (Doc URL, default) | 'text' (Doc content) | 'pdf' (export -> file upload); pdf/text need a Google client. All still behind the PR 23 gate (approval/policy + verify + idempotent).
 - [manual] Once Google is connected: pdf mode exports the Doc to PDF and uploads it to Canvas; link mode submits the Doc URL; you can also just download the PDF from the Doc and submit by hand.
+
+## Canvas calendar -> sessions (schedule ingestion)
+- [auto] DirectCanvasClient.listCalendarEvents queries /api/v1/calendar_events (course context + date window). calendarEventToSessionEvent -> canvas.session.discovered; upsertSessionFromEvent projects into sessions (idempotent by calendar event id), registered on the bus. ingestCourseCalendar publishes them so sessions populate. This is the schedule backbone that lets class prep fire before each class.
+- [needs-creds] Live: with the Canvas token, pull a course's calendar for a date window -> sessions appear with start/end times. (Whether Ivey exposes class meetings as calendar events varies; if not, sessions also come from recorded lectures or manual entry.)

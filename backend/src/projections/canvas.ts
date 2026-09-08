@@ -91,10 +91,34 @@ export async function upsertAssignmentFromEvent(
   return res.rows[0]!.id;
 }
 
+export async function upsertSessionFromEvent(db: SqlClient, event: EventEnvelope): Promise<string> {
+  const p = event.payload;
+  const canvasCourseId = str(p.canvas_course_id);
+  const course = await db.query<{ id: string }>(
+    `SELECT id FROM courses WHERE source = 'canvas' AND source_id = $1`,
+    [canvasCourseId],
+  );
+  if (course.rows.length === 0) {
+    throw new Error(`cannot project session: course canvas_id=${canvasCourseId} not found`);
+  }
+  const metadata = compact({ canvas_event_id: p.canvas_event_id });
+  const res = await db.query<{ id: string }>(
+    `INSERT INTO sessions (course_id, kind, title, starts_at, ends_at, source, source_id, metadata)
+     VALUES ($1, 'lecture', $2, $3, $4, 'canvas', $5, $6::jsonb)
+     ON CONFLICT (source, source_id) WHERE source_id IS NOT NULL
+     DO UPDATE SET title = excluded.title, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
+                   metadata = sessions.metadata || excluded.metadata
+     RETURNING id`,
+    [course.rows[0]!.id, strOrNull(p.title), strOrNull(p.starts_at), strOrNull(p.ends_at), str(p.canvas_event_id), JSON.stringify(metadata)],
+  );
+  return res.rows[0]!.id;
+}
+
 /** Register the Canvas projectors as handlers on the event bus. */
 export function registerCanvasProjectors(bus: EventBus, db: SqlClient): void {
   bus.on(CANVAS_EVENT.courseDiscovered, (event) => upsertCourseFromEvent(db, event).then(() => {}));
   bus.on(CANVAS_EVENT.assignmentDiscovered, (event) =>
     upsertAssignmentFromEvent(db, event).then(() => {}),
   );
+  bus.on(CANVAS_EVENT.sessionDiscovered, (event) => upsertSessionFromEvent(db, event).then(() => {}));
 }

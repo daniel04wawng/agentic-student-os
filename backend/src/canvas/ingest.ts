@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { EventBus } from '../events/bus.js';
-import type { CanvasClient } from './client.js';
-import { assignmentToEvent, courseToEvent } from './normalize.js';
+import type { CanvasClient, CanvasContentClient } from './client.js';
+import { assignmentToEvent, calendarEventToSessionEvent, courseToEvent } from './normalize.js';
 
 export interface IngestOptions {
   /** Correlate the whole ingestion run. Defaults to a fresh uuid. */
@@ -50,4 +50,24 @@ export async function ingestCanvas(
   }
 
   return { traceId, courses: courseCount, assignments: assignmentCount, duplicates };
+}
+
+/**
+ * Pull a course's calendar events (class meetings) for a date window and publish
+ * session events, so the schedule populates `sessions` and class prep can fire
+ * before each class. Idempotent on the calendar event id.
+ */
+export async function ingestCourseCalendar(
+  client: CanvasContentClient,
+  bus: EventBus,
+  canvasCourseId: number,
+  opts: { startDate: string; endDate: string; traceId?: string; now?: () => string },
+): Promise<{ sessions: number }> {
+  const traceId = opts.traceId ?? randomUUID();
+  const now = opts.now ?? (() => new Date().toISOString());
+  const events = await client.listCalendarEvents(canvasCourseId, opts.startDate, opts.endDate);
+  for (const event of events) {
+    await bus.publish(calendarEventToSessionEvent(event, canvasCourseId, traceId, now()));
+  }
+  return { sessions: events.length };
 }

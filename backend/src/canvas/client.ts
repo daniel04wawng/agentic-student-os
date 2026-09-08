@@ -1,5 +1,6 @@
 import type {
   CanvasAssignment,
+  CanvasCalendarEvent,
   CanvasCourse,
   CanvasDiscussion,
   CanvasModule,
@@ -36,6 +37,8 @@ export interface CanvasContentClient extends CanvasClient {
   listModules(courseId: number): Promise<CanvasModule[]>;
   listDiscussions(courseId: number): Promise<CanvasDiscussion[]>;
   listAnnouncements(courseId: number): Promise<CanvasDiscussion[]>;
+  /** Calendar events (class meetings) for a course in a date window (YYYY-MM-DD). */
+  listCalendarEvents(courseId: number, startDate: string, endDate: string): Promise<CanvasCalendarEvent[]>;
 }
 
 export class CanvasError extends Error {
@@ -138,6 +141,11 @@ export class DirectCanvasClient implements CanvasContentClient {
     return this.getAll<CanvasDiscussion>(
       `/api/v1/courses/${courseId}/discussion_topics?only_announcements=true&per_page=100`,
     );
+  }
+
+  listCalendarEvents(courseId: number, startDate: string, endDate: string): Promise<CanvasCalendarEvent[]> {
+    const q = `type=event&context_codes[]=course_${courseId}&start_date=${startDate}&end_date=${endDate}&per_page=100`;
+    return this.getAll<CanvasCalendarEvent>(`/api/v1/calendar_events?${q}`);
   }
 }
 

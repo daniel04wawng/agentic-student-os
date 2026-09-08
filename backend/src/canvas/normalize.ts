@@ -1,5 +1,5 @@
 import { deriveIdempotencyKey, type EventEnvelope } from '@student-os/shared';
-import type { CanvasAssignment, CanvasCourse } from './types.js';
+import type { CanvasAssignment, CanvasCalendarEvent, CanvasCourse } from './types.js';
 import { CANVAS_EVENT } from './types.js';
 
 /**
@@ -29,6 +29,29 @@ export function courseToEvent(
       term: course.term?.name ?? null,
       workflow_state: course.workflow_state ?? null,
       time_zone: course.time_zone ?? null,
+    },
+  };
+}
+
+export function calendarEventToSessionEvent(
+  event: CanvasCalendarEvent,
+  canvasCourseId: number,
+  traceId: string,
+  occurredAt: string,
+): EventEnvelope {
+  return {
+    name: CANVAS_EVENT.sessionDiscovered,
+    occurred_at: occurredAt,
+    idempotency_key: deriveIdempotencyKey(['canvas', 'session', String(event.id)]),
+    trace_id: traceId,
+    source: 'canvas',
+    subject_type: 'session',
+    payload: {
+      canvas_event_id: event.id,
+      canvas_course_id: canvasCourseId,
+      title: event.title,
+      starts_at: event.start_at ?? null,
+      ends_at: event.end_at ?? null,
     },
   };
 }

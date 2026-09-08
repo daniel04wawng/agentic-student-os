@@ -44,8 +44,17 @@ export interface CanvasDiscussion {
   posted_at?: string | null;
 }
 
+export interface CanvasCalendarEvent {
+  id: number;
+  title: string;
+  start_at?: string | null;
+  end_at?: string | null;
+  context_code?: string;
+}
+
 /** Normalized internal event names emitted from Canvas ingestion. */
 export const CANVAS_EVENT = {
   courseDiscovered: 'canvas.course.discovered',
   assignmentDiscovered: 'canvas.assignment.discovered',
+  sessionDiscovered: 'canvas.session.discovered',
 } as const;
