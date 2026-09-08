@@ -128,3 +128,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] `detectUpcomingClasses` finds sessions in a time window lacking a prep. `gatherPrepContext` (deterministic) pulls prior session summaries + readings. `prepareClass` synthesizes a prep (model + deterministic fallback), upserts one prep per session, creates a pre-class notification (deduped per session), and emits `class.prep.ready` once. Idempotent.
 - [backfill: model] Rich prep synthesis needs a real model; structure/context-gathering/notification/event are tested with the fake (deterministic fallback).
 - [manual] Before an upcoming class, confirm a prep artifact + a "Class prep ready" notification appear; re-running doesn't duplicate them.
+
+## PR 17 — Google artifact layer + remote-version tracking (no UI)
+- [auto] `GoogleDocsClient` abstraction (create/update/getRevision) with a `FakeGoogleDocsClient` (monotonic revisions). `createGoogleDocArtifact` creates a doc and registers an artifact capturing its URI, remote doc id (source_id), and remote revision (remote_version). `updateArtifactRemoteVersion` records new revisions. `UnconfiguredGoogleDocsClient` fails clearly until OAuth is connected.
+- [backfill: Google account] The real client needs a connected Google account (OAuth via Composio or the Google API). Once connected, creating an artifact should produce a real Doc and store its revision id.
+- Decision (does not block): Composio-managed Google OAuth vs direct Google API. Interface is identical; tell me which for production.
