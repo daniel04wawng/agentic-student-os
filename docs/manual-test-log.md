@@ -171,3 +171,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 - [auto] `parseCommand` (deterministic) parses pause/resume/defer-until/set-policy with global or course scope; switching policy to `auto` is flagged dangerous. `applyCommand` persists control state, scopes pause to a single course (course A paused doesn't pause B), and REFUSES a dangerous override without `confirmed:true` (needs_confirmation, no mutation) — applying only on confirmation. `isPaused` reflects course OR global pause.
 - [backfill: model (optional)] Deterministic keyword parsing covers the safety-critical commands; a model can enrich free-form NL later without changing the safe core.
 - [manual] "pause course X" / "resume" toggle proactive work for that scope; "set policy to auto" asks for confirmation before removing the review gate.
+
+## PR 26 — Reconciliation + recovery hardening (migration 0017; no UI)
+- [auto] Retry queue: enqueue -> claim due -> failRetry with backoff -> `dead` after max attempts (surfaced, not lost). `reconcileArtifacts` detects out-of-band Google edits (stored vs live revision), records drift, and invalidates stale approvals. `detectStaleState` finds items stuck in transient states (uploading/processing/submitting) past a threshold. `recoverySnapshot` summarizes failed/dead work across recordings/transcripts/submissions/notifications/retries.
+- [backfill: providers] Canvas/Outlook live reconciliation runs against real providers once connected; the artifact-drift path, retry queue, stale detection, and snapshot are fully tested.
+- [manual] Edit an artifact out of band -> reconciliation flags drift + invalidates approval; a stuck submission shows up in stale detection; the recovery snapshot counts failures.
