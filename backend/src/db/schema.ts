@@ -112,6 +112,9 @@ export type ReadinessStatus = (typeof READINESS_STATUSES)[number];
 export const CLASS_PREP_STATUSES = ['pending', 'ready', 'failed'] as const;
 export type ClassPrepStatus = (typeof CLASS_PREP_STATUSES)[number];
 
+export const WRITING_SAMPLE_SOURCES = ['self', 'instructor', 'exemplar'] as const;
+export type WritingSampleSource = (typeof WRITING_SAMPLE_SOURCES)[number];
+
 /** Postgres enum type name -> ordered label list. Used by the drift test. */
 export const DB_ENUMS = {
   provider: PROVIDERS,
@@ -135,6 +138,7 @@ export const DB_ENUMS = {
   summary_scope: SUMMARY_SCOPES,
   readiness_status: READINESS_STATUSES,
   class_prep_status: CLASS_PREP_STATUSES,
+  writing_sample_source: WRITING_SAMPLE_SOURCES,
 } as const satisfies Record<string, readonly string[]>;
 
 /** Canonical table names in the world-state schema. */
@@ -157,5 +161,6 @@ export const TABLES = [
   'summaries',
   'readiness_contracts',
   'class_preps',
+  'writing_samples',
 ] as const;
 export type TableName = (typeof TABLES)[number];
