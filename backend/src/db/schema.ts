@@ -183,5 +183,6 @@ export const TABLES = [
   'submissions',
   'control_state',
   'retry_queue',
+  'materials',
 ] as const;
 export type TableName = (typeof TABLES)[number];

@@ -52,6 +52,15 @@ export interface CanvasCalendarEvent {
   context_code?: string;
 }
 
+export interface CanvasFile {
+  id: number;
+  display_name: string;
+  url: string;
+  'content-type'?: string;
+  content_type?: string;
+  size?: number;
+}
+
 /** Normalized internal event names emitted from Canvas ingestion. */
 export const CANVAS_EVENT = {
   courseDiscovered: 'canvas.course.discovered',

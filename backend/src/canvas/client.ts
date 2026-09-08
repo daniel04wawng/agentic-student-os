@@ -3,6 +3,7 @@ import type {
   CanvasCalendarEvent,
   CanvasCourse,
   CanvasDiscussion,
+  CanvasFile,
   CanvasModule,
   CanvasUser,
 } from './types.js';
@@ -39,6 +40,10 @@ export interface CanvasContentClient extends CanvasClient {
   listAnnouncements(courseId: number): Promise<CanvasDiscussion[]>;
   /** Calendar events (class meetings) for a course in a date window (YYYY-MM-DD). */
   listCalendarEvents(courseId: number, startDate: string, endDate: string): Promise<CanvasCalendarEvent[]>;
+  /** Files posted in a course (readings/slides/cases the prof provides). */
+  listFiles(courseId: number): Promise<CanvasFile[]>;
+  /** Download a file's bytes (ephemeral; caller extracts text then discards). */
+  downloadFile(url: string): Promise<Buffer>;
 }
 
 export class CanvasError extends Error {
@@ -146,6 +151,17 @@ export class DirectCanvasClient implements CanvasContentClient {
   listCalendarEvents(courseId: number, startDate: string, endDate: string): Promise<CanvasCalendarEvent[]> {
     const q = `type=event&context_codes[]=course_${courseId}&start_date=${startDate}&end_date=${endDate}&per_page=100`;
     return this.getAll<CanvasCalendarEvent>(`/api/v1/calendar_events?${q}`);
+  }
+
+  listFiles(courseId: number): Promise<CanvasFile[]> {
+    return this.getAll<CanvasFile>(`/api/v1/courses/${courseId}/files?per_page=100`);
+  }
+
+  async downloadFile(url: string): Promise<Buffer> {
+    // Canvas file URLs are pre-authenticated (verifier); the bearer is harmless.
+    const res = await this.fetchImpl(url, { headers: { Authorization: `Bearer ${this.token}` } });
+    if (!res.ok) throw new CanvasError(`Canvas download ${res.status}`, res.status);
+    return Buffer.from(await res.arrayBuffer());
   }
 }
 

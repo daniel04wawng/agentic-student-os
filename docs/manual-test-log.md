@@ -197,3 +197,8 @@ Legend: [auto] covered by automated tests/CI · [manual] do this yourself after 
 ## Canvas calendar -> sessions (schedule ingestion)
 - [auto] DirectCanvasClient.listCalendarEvents queries /api/v1/calendar_events (course context + date window). calendarEventToSessionEvent -> canvas.session.discovered; upsertSessionFromEvent projects into sessions (idempotent by calendar event id), registered on the bus. ingestCourseCalendar publishes them so sessions populate. This is the schedule backbone that lets class prep fire before each class.
 - [needs-creds] Live: with the Canvas token, pull a course's calendar for a date window -> sessions appear with start/end times. (Whether Ivey exposes class meetings as calendar events varies; if not, sessions also come from recorded lectures or manual entry.)
+
+## Materials pipeline — download, extract in memory, discard PDF (migration 0018)
+- [auto] `extractText` pulls text from PDF bytes via unpdf (real extraction tested) or UTF-8 for text; detects PDF by magic bytes. `ingestCanvasFile` downloads a Canvas file, extracts text IN MEMORY, stores only the text in `materials`, and discards the bytes (no PDF persisted — storage-friendly); idempotent on (source, source_id). `ingestUploadedPdf` handles a dropped-in purchased case (source=manual). Canvas client gains listFiles + downloadFile.
+- [manual] Course-provided files auto-download and become searchable material text; a purchased case you drop in is extracted the same way. The original PDF is never stored.
+- Next connect step: feed materials text into class prep so Gemma preps the case with the numbers + a worked answer.
