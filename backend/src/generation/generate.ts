@@ -8,6 +8,7 @@ import type { EventBus } from '../events/bus.js';
 import type { GoogleDocsClient } from '../google/client.js';
 import type { ModelMessage } from '../model/provider.js';
 import type { ModelService } from '../model/service.js';
+import { HOUSE_STYLE_RULE, gatherVoiceGuidance, renderVoice, stripEmDashes } from '../writing/style.js';
 
 export const ASSIGNMENT_REVIEW_READY = 'assignment.review_ready';
 const QA_MIN_BODY_LENGTH = 20;
@@ -72,12 +73,13 @@ export async function generateAssignment(
   ctx: Ctx,
   assignmentId: string,
 ): Promise<GenerateResult> {
-  const asg = await db.query<{ title: string; status: string }>(
-    `SELECT title, status FROM assignments WHERE id = $1`,
+  const asg = await db.query<{ title: string; status: string; course_id: string | null }>(
+    `SELECT title, status, course_id FROM assignments WHERE id = $1`,
     [assignmentId],
   );
   if (asg.rows.length === 0) throw new Error(`assignment not found: ${assignmentId}`);
   const title = asg.rows[0]!.title;
+  const courseId = asg.rows[0]!.course_id;
 
   await db.query(`UPDATE assignments SET status = 'generating' WHERE id = $1`, [assignmentId]);
 
@@ -95,13 +97,25 @@ export async function generateAssignment(
       )
     ).rows[0]!.id;
 
+  // Draft in the student's voice (once samples exist) under the house style.
+  const voice = await gatherVoiceGuidance(db, { courseId, deliverableKind: 'essay' });
+  const draftSystem = [
+    'Draft the assignment as JSON {"title","body"}.',
+    HOUSE_STYLE_RULE,
+    renderVoice(voice),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const draftMsgs: ModelMessage[] = [
-    { role: 'system', content: 'Draft the assignment as JSON {"title","body"}.' },
+    { role: 'system', content: draftSystem },
     { role: 'user', content: title },
   ];
   const draft = await ctx.model.generateStructured({ messages: draftMsgs }, DraftSchema, {
     fallback: () => ({ title, body: `Draft for "${title}". This response addresses the prompt in full.` }),
   });
+  // Guarantee the house style regardless of model output.
+  draft.title = stripEmDashes(draft.title);
+  draft.body = stripEmDashes(draft.body);
 
   const { artifactId } = await createGoogleDocArtifact(db, ctx.google, deliverableId, draft.title || title, draft.body);
 
@@ -142,7 +156,7 @@ async function safeAgentEditBody(
 ): Promise<string> {
   let result = '';
   await safeAgentEdit(db, google, artifactId, (current) => {
-    result = editFn(current);
+    result = stripEmDashes(editFn(current));
     return result;
   });
   return result;

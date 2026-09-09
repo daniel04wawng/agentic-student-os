@@ -35,6 +35,10 @@ const ConfigSchema = z.object({
   MODEL_NAME: z.string().min(1).default('gemma2'),
   MODAL_MODEL_URL: z.string().url().optional(),
   MODAL_MODEL_TOKEN: z.string().min(1).optional(),
+  // Deepgram speech-to-text. A plain API key (not OAuth); when present the real
+  // provider is used, otherwise a deterministic fake. Audio goes straight to
+  // Deepgram, so this is not brokered through any integration platform.
+  DEEPGRAM_API_KEY: z.string().min(1).optional(),
   // Gate for autonomous Canvas submission. Off by default (submit only on
   // explicit user action / approval).
   AUTO_SUBMIT: z.preprocess((v) => v === '1' || v === 'true', z.boolean()),
