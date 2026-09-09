@@ -39,6 +39,11 @@ const ConfigSchema = z.object({
   // provider is used, otherwise a deterministic fake. Audio goes straight to
   // Deepgram, so this is not brokered through any integration platform.
   DEEPGRAM_API_KEY: z.string().min(1).optional(),
+  // Composio brokers Google (Docs/Drive/Calendar) + Gmail via OAuth. When the
+  // key is present, the real Google client is used; actions run as the connected
+  // account for COMPOSIO_USER_ID.
+  COMPOSIO_API_KEY: z.string().min(1).optional(),
+  COMPOSIO_USER_ID: z.string().min(1).default('default'),
   // Gate for autonomous Canvas submission. Off by default (submit only on
   // explicit user action / approval).
   AUTO_SUBMIT: z.preprocess((v) => v === '1' || v === 'true', z.boolean()),
