@@ -1,7 +1,14 @@
 import { existsSync } from 'node:fs';
 import pg from 'pg';
+import { DirectCanvasClient } from './canvas/client.js';
 import { loadConfig } from './config.js';
 import type { SqlClient } from './db/client.js';
+import { EventBus } from './events/bus.js';
+import { createModelProvider } from './model/factory.js';
+import { ModelService } from './model/service.js';
+import { registerCanvasProjectors } from './projections/canvas.js';
+import { startCanvasSync } from './scheduler/canvas-sync.js';
+import { startPrepScheduler } from './scheduler/scheduler.js';
 import { buildServer, type ServerDeps } from './server.js';
 import { LocalStorageProvider } from './storage/provider.js';
 
@@ -60,10 +67,35 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const deps: ServerDeps = {};
   if (config.DATABASE_URL) {
-    deps.db = makeDbClient(config.DATABASE_URL);
+    const db = makeDbClient(config.DATABASE_URL);
+    deps.db = db;
     // Dev default: local filesystem blob store. Swap for S3/Supabase Storage
     // (presigned uploads) in production.
     deps.storage = new LocalStorageProvider(config.RECORDINGS_DIR);
+
+    // Background pipelines: a bus with projectors turns ingest events into
+    // canonical rows; Canvas sync keeps courses/deadlines/materials fresh; the
+    // prep scheduler prepares upcoming classes ahead of time.
+    const bus = new EventBus(db);
+    registerCanvasProjectors(bus, db);
+
+    if (config.CANVAS_BASE_URL && config.CANVAS_API_TOKEN) {
+      const canvas = new DirectCanvasClient({ baseUrl: config.CANVAS_BASE_URL, token: config.CANVAS_API_TOKEN });
+      startCanvasSync(db, canvas, bus, {
+        onTick: (r) => console.log('[canvas-sync]', JSON.stringify(r)),
+      });
+    }
+
+    if (config.PREP_SCHEDULER) {
+      const model = new ModelService(createModelProvider(config));
+      startPrepScheduler(db, bus, model, {
+        intervalMs: config.PREP_INTERVAL_MIN * 60_000,
+        withinHours: config.PREP_WITHIN_HOURS,
+        onTick: (r) => {
+          if (r.prepared || r.error) console.log('[prep-scheduler]', JSON.stringify(r));
+        },
+      });
+    }
   }
   const app = buildServer(config, deps);
   await app.listen({ port: config.BACKEND_PORT, host: config.BACKEND_HOST });

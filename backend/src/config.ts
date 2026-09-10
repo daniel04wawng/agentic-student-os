@@ -47,6 +47,11 @@ const ConfigSchema = z.object({
   // Gate for autonomous Canvas submission. Off by default (submit only on
   // explicit user action / approval).
   AUTO_SUBMIT: z.preprocess((v) => v === '1' || v === 'true', z.boolean()),
+  // Auto-prep scheduler: prepares upcoming classes ahead of time. On unless
+  // explicitly disabled. Runs only when a DB + real model are configured.
+  PREP_SCHEDULER: z.preprocess((v) => !(v === '0' || v === 'false'), z.boolean()),
+  PREP_WITHIN_HOURS: z.coerce.number().int().positive().default(48),
+  PREP_INTERVAL_MIN: z.coerce.number().int().positive().default(30),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

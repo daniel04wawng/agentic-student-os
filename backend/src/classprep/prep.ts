@@ -235,14 +235,34 @@ export async function prepareClass(
   return prep;
 }
 
-/** Detect upcoming classes and prepare each. */
+/** True when a course has usable prep content (materials or prior summaries). */
+async function courseHasContent(db: SqlClient, courseId: string | null): Promise<boolean> {
+  if (!courseId) return false;
+  const { rows } = await db.query<{ has: boolean }>(
+    `SELECT (EXISTS(SELECT 1 FROM materials WHERE course_id = $1 AND length(text) >= 20)
+          OR EXISTS(SELECT 1 FROM summaries WHERE course_id = $1)) AS has`,
+    [courseId],
+  );
+  return rows[0]?.has ?? false;
+}
+
+/**
+ * Detect upcoming classes and prepare each. With `requireContent` (used by the
+ * scheduler), it skips sessions whose course has no materials or summaries, so
+ * we never generate empty placeholder preps for a course we have nothing on.
+ */
 export async function prepareUpcoming(
   db: SqlClient,
   bus: EventBus,
   model: ModelService,
-  opts: { now: string; withinHours: number },
+  opts: { now: string; withinHours: number; requireContent?: boolean },
 ): Promise<number> {
   const upcoming = await detectUpcomingClasses(db, opts);
-  for (const c of upcoming) await prepareClass(db, bus, model, c.session_id);
-  return upcoming.length;
+  let prepared = 0;
+  for (const c of upcoming) {
+    if (opts.requireContent && !(await courseHasContent(db, c.course_id))) continue;
+    await prepareClass(db, bus, model, c.session_id);
+    prepared += 1;
+  }
+  return prepared;
 }
