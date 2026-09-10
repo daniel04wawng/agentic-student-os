@@ -113,6 +113,60 @@ export async function getAgenda(
   return items.sort((a, b) => Date.parse(a.when) - Date.parse(b.when));
 }
 
+export interface PrepContent {
+  overview: string;
+  prior_recap: string;
+  key_points: string[];
+  questions: string[];
+  analysis: string;
+  worked_answer: string;
+}
+
+export interface PrepView {
+  session_id: string;
+  course_name: string;
+  title: string | null;
+  starts_at: string;
+  content: PrepContent;
+}
+
+/**
+ * Upcoming class preps (with full worked content) for sessions in the near
+ * future, most imminent first. Includes classes from a few hours ago so a
+ * class happening right now still shows. Excludes removed courses.
+ */
+export async function getUpcomingPreps(
+  db: SqlClient,
+  q: { now: string; horizonDays?: number },
+): Promise<PrepView[]> {
+  const fromIso = new Date(Date.parse(q.now) - 12 * 3_600_000).toISOString();
+  const toIso = new Date(Date.parse(q.now) + (q.horizonDays ?? 21) * 86_400_000).toISOString();
+  const { rows } = await db.query<{
+    session_id: string;
+    course_name: string;
+    title: string | null;
+    starts_at: unknown;
+    content: PrepContent;
+  }>(
+    `SELECT p.session_id, c.name AS course_name, s.title,
+            to_char(s.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS starts_at,
+            p.content
+     FROM class_preps p
+     JOIN sessions s ON s.id = p.session_id
+     JOIN courses c ON c.id = p.course_id
+     WHERE s.starts_at >= $1 AND s.starts_at <= $2 AND c.status <> 'archived'
+     ORDER BY s.starts_at ASC`,
+    [fromIso, toIso],
+  );
+  return rows.map((r) => ({
+    session_id: r.session_id,
+    course_name: r.course_name,
+    title: r.title,
+    starts_at: String(r.starts_at),
+    content: r.content,
+  }));
+}
+
 export interface ReviewView {
   notifications: { id: string; title: string; body: string | null; subject_type: string | null; subject_id: string | null }[];
   assignments: { id: string; title: string }[];
