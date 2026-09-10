@@ -54,21 +54,35 @@ image = (
     )
     .run_commands("cd /app && npm ci && npm run build")
     # Recordings live on a persistent Volume, not the ephemeral container disk.
-    .env({"RECORDINGS_DIR": "/data/recordings"})
+    # PREP_SCHEDULER=0: the web endpoint runs no in-process loops; the two
+    # scheduled functions below drive prep + Canvas sync instead.
+    .env({"RECORDINGS_DIR": "/data/recordings", "PREP_SCHEDULER": "0"})
 )
 
+SECRET = modal.Secret.from_name("student-os-backend-env")
 # Persistent storage for uploaded lecture audio (survives container restarts).
 audio_volume = modal.Volume.from_name("student-os-audio", create_if_missing=True)
 
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    secrets=[SECRET],
     volumes={"/data/recordings": audio_volume},
-    min_containers=1,  # keep warm so the schedulers keep running
-    timeout=24 * 60 * 60,
+    timeout=600,
 )
 @modal.web_server(3000, startup_timeout=180)
 def serve():
-    # Start the backend; it binds 0.0.0.0:3000 (BACKEND_HOST/PORT from the secret).
+    # Scale-to-zero API. Binds 0.0.0.0:3000 (BACKEND_HOST/PORT from the secret).
     subprocess.Popen(["node", "backend/dist/index.js"], cwd="/app")
+
+
+@app.function(image=image, secrets=[SECRET], schedule=modal.Period(minutes=30), timeout=900)
+def prep_tick():
+    """Prepare upcoming classes ahead of time (every 30 min)."""
+    subprocess.run(["node", "backend/dist/tick.js", "prep"], cwd="/app", check=False)
+
+
+@app.function(image=image, secrets=[SECRET], schedule=modal.Period(hours=6), timeout=1800)
+def canvas_tick():
+    """Refresh Canvas courses / deadlines / materials (every 6h)."""
+    subprocess.run(["node", "backend/dist/tick.js", "sync"], cwd="/app", check=False)
