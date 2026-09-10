@@ -53,12 +53,18 @@ image = (
         ],
     )
     .run_commands("cd /app && npm ci && npm run build")
+    # Recordings live on a persistent Volume, not the ephemeral container disk.
+    .env({"RECORDINGS_DIR": "/data/recordings"})
 )
+
+# Persistent storage for uploaded lecture audio (survives container restarts).
+audio_volume = modal.Volume.from_name("student-os-audio", create_if_missing=True)
 
 
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("student-os-backend-env")],
+    volumes={"/data/recordings": audio_volume},
     min_containers=1,  # keep warm so the schedulers keep running
     timeout=24 * 60 * 60,
 )

@@ -1,8 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { SqlClient } from '../db/client.js';
+import type { EventBus } from '../events/bus.js';
 import { getRecording, registerRecording, storeAudio } from '../recordings/service.js';
 import type { StorageProvider } from '../storage/provider.js';
+import type { TranscriptionProvider } from '../transcription/provider.js';
+import { requestTranscription, runTranscription } from '../transcription/service.js';
+
+export interface RecordingRouteDeps {
+  transcription?: TranscriptionProvider;
+  bus?: EventBus;
+}
 
 const AUDIO_CONTENT_TYPES = [
   'application/octet-stream',
@@ -19,6 +27,7 @@ export function registerRecordingRoutes(
   app: FastifyInstance,
   db: SqlClient,
   storage: StorageProvider,
+  deps: RecordingRouteDeps = {},
 ): void {
   // Collect raw audio bytes as a Buffer for the upload endpoint.
   app.addContentTypeParser(AUDIO_CONTENT_TYPES, { parseAs: 'buffer' }, (_req, body, done) => {
@@ -48,7 +57,8 @@ export function registerRecordingRoutes(
     return { id: rec.id, status: rec.status, upload_path: `/recordings/${rec.id}/audio` };
   });
 
-  app.put('/recordings/:id/audio', async (req, reply) => {
+  // Lecture recordings are large; allow up to 500 MB (default Fastify cap is 1 MB).
+  app.put('/recordings/:id/audio', { bodyLimit: 500 * 1024 * 1024 }, async (req, reply) => {
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return reply.code(400).send({ error: 'invalid_request' });
 
@@ -60,6 +70,22 @@ export function registerRecordingRoutes(
     if (!existing) return reply.code(404).send({ error: 'not_found' });
 
     const res = await storeAudio(db, storage, params.data.id, body);
+
+    // Kick off transcription in the background so the upload returns immediately.
+    // requestTranscription is idempotent; a failed run leaves the audio intact
+    // and marks the transcript retryable.
+    if (deps.transcription && deps.bus) {
+      const { transcription, bus } = deps;
+      void (async () => {
+        try {
+          const t = await requestTranscription(db, params.data.id);
+          await runTranscription(db, storage, transcription, bus, t.id);
+        } catch (err) {
+          app.log.error({ err, recording: params.data.id }, 'transcription failed');
+        }
+      })();
+    }
+
     return { status: 'stored', key: res.key, size: res.size };
   });
 }

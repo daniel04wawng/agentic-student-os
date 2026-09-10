@@ -3,9 +3,11 @@ import { HealthResponseSchema, TRACE_HEADER, type HealthResponse } from '@studen
 import type { Config } from './config.js';
 import type { SqlClient } from './db/client.js';
 import { registerInngest } from './inngest/serve.js';
+import type { EventBus } from './events/bus.js';
 import { registerApiRoutes } from './routes/api.js';
 import { registerRecordingRoutes } from './routes/recordings.js';
 import type { StorageProvider } from './storage/provider.js';
+import type { TranscriptionProvider } from './transcription/provider.js';
 import { traceMixin } from './logger.js';
 import { enterTraceContext, normalizeTraceId } from './trace.js';
 
@@ -14,6 +16,10 @@ export interface ServerDeps {
   db?: SqlClient;
   /** When provided alongside `db`, audio recording routes are mounted. */
   storage?: StorageProvider;
+  /** When provided with storage + bus, uploaded audio is auto-transcribed. */
+  transcription?: TranscriptionProvider;
+  /** Event bus for pipeline events (e.g. transcription.completed). */
+  bus?: EventBus;
 }
 
 const SERVICE_NAME = 'backend';
@@ -50,7 +56,10 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
   if (deps.db) {
     registerApiRoutes(app, deps.db);
     if (deps.storage) {
-      registerRecordingRoutes(app, deps.db, deps.storage);
+      registerRecordingRoutes(app, deps.db, deps.storage, {
+        transcription: deps.transcription,
+        bus: deps.bus,
+      });
     }
   }
 

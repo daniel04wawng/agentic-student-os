@@ -7,6 +7,7 @@ import { EventBus } from './events/bus.js';
 import { createModelProvider } from './model/factory.js';
 import { ModelService } from './model/service.js';
 import { registerCanvasProjectors } from './projections/canvas.js';
+import { createTranscriptionProvider } from './transcription/factory.js';
 import { startCanvasSync } from './scheduler/canvas-sync.js';
 import { startPrepScheduler } from './scheduler/scheduler.js';
 import { buildServer, type ServerDeps } from './server.js';
@@ -78,6 +79,9 @@ async function main(): Promise<void> {
     // prep scheduler prepares upcoming classes ahead of time.
     const bus = new EventBus(db);
     registerCanvasProjectors(bus, db);
+    deps.bus = bus;
+    // Auto-transcribe uploaded audio (Deepgram when a key is set, else a fake).
+    deps.transcription = createTranscriptionProvider(config);
 
     if (config.CANVAS_BASE_URL && config.CANVAS_API_TOKEN) {
       const canvas = new DirectCanvasClient({ baseUrl: config.CANVAS_BASE_URL, token: config.CANVAS_API_TOKEN });
