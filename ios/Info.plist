@@ -20,6 +20,10 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Backend base URL the app talks to. Currently an ngrok tunnel to the Mac
+	     dev server; update when the tunnel URL changes or the backend is hosted. -->
+	<key>BackendBaseURL</key>
+	<string>https://sneak-everybody-lion.ngrok-free.dev</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

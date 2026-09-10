@@ -26,6 +26,8 @@ struct APIClient {
         var req = URLRequest(url: components.url!)
         req.httpMethod = method
         req.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: Self.traceHeader)
+        // Bypass ngrok-free's browser interstitial so tunnelled API calls return JSON.
+        req.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -90,6 +92,8 @@ struct APIClient {
         req.httpBody = data
         req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         req.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: Self.traceHeader)
+        // Bypass ngrok-free's browser interstitial so tunnelled API calls return JSON.
+        req.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
         let (_, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
