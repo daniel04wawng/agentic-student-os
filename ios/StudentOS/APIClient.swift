@@ -61,6 +61,10 @@ struct APIClient {
         try await send(request("review"))
     }
 
+    func preps() async throws -> [PrepItem] {
+        try await send(request("preps"))
+    }
+
     func registerDevice(token: String, platform: String = "ios") async throws {
         let payload = try JSONSerialization.data(withJSONObject: ["token": token, "platform": platform])
         let req = request("devices", method: "POST", body: payload)

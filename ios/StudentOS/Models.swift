@@ -59,3 +59,22 @@ struct ReviewResponse: Codable {
     let notifications: [ReviewNotification]
     let assignments: [ReviewAssignment]
 }
+
+/// A prepared class: what to know and a worked analysis for an upcoming session.
+struct PrepContent: Codable, Hashable {
+    let overview: String
+    let priorRecap: String
+    let keyPoints: [String]
+    let questions: [String]
+    let analysis: String
+    let workedAnswer: String
+}
+
+struct PrepItem: Codable, Identifiable, Hashable {
+    let sessionId: String
+    let courseName: String
+    let title: String?
+    let startsAt: String
+    let content: PrepContent
+    var id: String { sessionId }
+}

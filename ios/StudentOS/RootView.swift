@@ -7,14 +7,14 @@ struct RootView: View {
         TabView {
             TodayView()
                 .tabItem { Label("Today", systemImage: "sun.max") }
-            ReviewView()
-                .tabItem { Label("Review", systemImage: "tray.full") }
+            PrepView()
+                .tabItem { Label("Prep", systemImage: "graduationcap") }
             DeadlinesView()
                 .tabItem { Label("Deadlines", systemImage: "calendar") }
             RecorderView()
                 .tabItem { Label("Record", systemImage: "mic") }
-            ContentView()
-                .tabItem { Label("Status", systemImage: "gauge") }
+            ReviewView()
+                .tabItem { Label("Review", systemImage: "tray.full") }
         }
     }
 }
