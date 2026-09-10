@@ -41,3 +41,6 @@ supabase/.temp/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# local ops/debug scripts (reference .env; not for VCS)
+backend/scripts/

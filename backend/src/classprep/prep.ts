@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
+import { splitCoursepack } from '../materials/split.js';
 import type { ModelMessage } from '../model/provider.js';
 import type { ModelService } from '../model/service.js';
 import { createNotification } from '../notifications/service.js';
@@ -32,22 +33,26 @@ export interface UpcomingClass {
   starts_at: string;
 }
 
-/** Sessions starting within the window that don't already have a prep. */
+/**
+ * Sessions starting within the window. By default only those that don't already
+ * have a prep; with `includePrepped`, all of them (used to regenerate preps
+ * after the prep logic changes).
+ */
 export async function detectUpcomingClasses(
   db: SqlClient,
-  opts: { now: string; withinHours: number },
+  opts: { now: string; withinHours: number; includePrepped?: boolean },
 ): Promise<UpcomingClass[]> {
   const { rows } = await db.query<UpcomingClass>(
     `SELECT s.id AS session_id, s.course_id, s.title,
             to_char(s.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS starts_at
      FROM sessions s
      LEFT JOIN class_preps p ON p.session_id = s.id
-     WHERE p.id IS NULL
+     WHERE ($3::bool OR p.id IS NULL)
        AND s.starts_at IS NOT NULL
        AND s.starts_at >= $1::timestamptz
        AND s.starts_at <= $1::timestamptz + ($2 || ' hours')::interval
      ORDER BY s.starts_at`,
-    [opts.now, String(opts.withinHours)],
+    [opts.now, String(opts.withinHours), opts.includePrepped ?? false],
   );
   return rows;
 }
@@ -79,6 +84,19 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
     [sessionId],
   );
   const courseId = ctx.rows[0]?.course_id ?? null;
+  // The session's 1-based ordinal within its course, ordered by start time. Used
+  // to match the Nth class meeting to the Nth case in a multi-case coursepack.
+  const ordinal = courseId
+    ? (
+        await db.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM sessions o
+           JOIN sessions s ON s.id = $2
+           WHERE o.course_id = $1 AND o.starts_at IS NOT NULL AND s.starts_at IS NOT NULL
+             AND o.starts_at <= s.starts_at`,
+          [courseId, sessionId],
+        )
+      ).rows[0]?.n ?? 1
+    : 1;
   const summaries = courseId
     ? await db.query<{ text: string }>(
         `SELECT text FROM summaries WHERE course_id = $1 AND scope='session' ORDER BY updated_at`,
@@ -107,8 +125,21 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
   let budget = TOTAL_MATERIAL_CHARS;
   for (const r of materialRows.rows) {
     if (budget <= 0) break;
-    const take = Math.min(r.text.length, PER_MATERIAL_CHARS, budget);
-    materials.push({ title: r.title, kind: r.kind, text: r.text.slice(0, take) });
+    // A coursepack bundles several cases in teaching order. Pick the one that
+    // matches this session's ordinal (1st meeting -> 1st case) so each class
+    // gets its assigned case, not always the first one in the file.
+    let title = r.title;
+    let text = r.text;
+    if (r.kind === 'case') {
+      const cases = splitCoursepack(r.text);
+      if (cases.length > 1) {
+        const picked = cases[Math.min(ordinal - 1, cases.length - 1)]!;
+        title = r.title ? `${r.title} - ${picked.title}` : picked.title;
+        text = picked.text;
+      }
+    }
+    const take = Math.min(text.length, PER_MATERIAL_CHARS, budget);
+    materials.push({ title, kind: r.kind, text: text.slice(0, take) });
     budget -= take;
   }
 
@@ -256,7 +287,7 @@ export async function prepareUpcoming(
   db: SqlClient,
   bus: EventBus,
   model: ModelService,
-  opts: { now: string; withinHours: number; requireContent?: boolean },
+  opts: { now: string; withinHours: number; requireContent?: boolean; includePrepped?: boolean },
 ): Promise<number> {
   const upcoming = await detectUpcomingClasses(db, opts);
   let prepared = 0;

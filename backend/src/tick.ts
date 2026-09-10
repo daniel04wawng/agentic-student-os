@@ -32,14 +32,18 @@ async function main(): Promise<void> {
     if (!config.CANVAS_BASE_URL || !config.CANVAS_API_TOKEN) throw new Error('Canvas is not configured');
     const canvas = new DirectCanvasClient({ baseUrl: config.CANVAS_BASE_URL, token: config.CANVAS_API_TOKEN });
     console.log('[tick:sync]', JSON.stringify(await runCanvasSync(db, canvas, bus)));
-  } else if (cmd === 'prep') {
+  } else if (cmd === 'prep' || cmd === 'regen') {
     const model = new ModelService(createModelProvider(config));
+    // `regen` rebuilds preps that already exist (e.g. after a prep-logic change)
+    // and reaches further out; `prep` only fills in missing ones for the window.
+    const regen = cmd === 'regen';
     const prepared = await prepareUpcoming(db, bus, model, {
       now: new Date().toISOString(),
-      withinHours: config.PREP_WITHIN_HOURS,
+      withinHours: regen ? 24 * 14 : config.PREP_WITHIN_HOURS,
       requireContent: true,
+      includePrepped: regen,
     });
-    console.log('[tick:prep]', JSON.stringify({ prepared }));
+    console.log(`[tick:${cmd}]`, JSON.stringify({ prepared }));
   } else {
     throw new Error(`unknown tick command '${cmd ?? ''}' (use prep|sync)`);
   }
