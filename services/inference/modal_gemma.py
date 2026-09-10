@@ -45,11 +45,13 @@ SCALEDOWN = 60  # seconds idle before the GPU spins down (you pay ~$0 while down
 # layer so cold starts never re-download them.
 image = (
     modal.Image.debian_slim()
-    .apt_install("curl")
+    .apt_install("curl", "zstd")  # zstd: required by the Ollama install script's extractor
     .pip_install("httpx", "fastapi")
     .run_commands("curl -fsSL https://ollama.com/install.sh | sh")
     .run_commands(
-        f"bash -c 'ollama serve & sleep 8 && ollama pull {MODEL} && pkill -f \"ollama serve\"'"
+        # Start a temporary server, pull the model into the image layer, stop it.
+        # Use $! + kill (shell builtins) since pkill/procps is not in the slim image.
+        f"bash -c 'ollama serve & SRV=$!; sleep 8 && ollama pull {MODEL} && kill $SRV'"
     )
 )
 
