@@ -97,7 +97,8 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
     ? await db.query<{ title: string | null; kind: string; text: string }>(
         `SELECT title, kind, text FROM materials
          WHERE course_id = $1 AND (session_id = $2 OR session_id IS NULL) AND length(text) >= 20
-         ORDER BY (kind = 'case') DESC, updated_at DESC`,
+         ORDER BY CASE kind WHEN 'syllabus' THEN 0 WHEN 'case' THEN 1 ELSE 2 END,
+                  length(text) ASC, updated_at DESC`,
         [courseId, sessionId],
       )
     : { rows: [] as { title: string | null; kind: string; text: string }[] };

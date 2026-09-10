@@ -1,52 +1,103 @@
-import type { CanvasContentClient } from '../canvas/client.js';
+import { resolveCourseFiles, type CanvasContentClient } from '../canvas/client.js';
 import { ingestCalendars, ingestCanvas } from '../canvas/ingest.js';
-import type { CanvasCourse } from '../canvas/types.js';
+import type { CanvasCourse, CanvasFile } from '../canvas/types.js';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
 import { ingestFileBytes } from '../materials/service.js';
 
-/** Pull a course's outline PDF (linked from its syllabus) and ingest it as material. */
-async function syncCourseOutline(
+/** Classify a course file by its name (best-effort). */
+function classifyMaterial(name: string): string {
+  if (/case|coursepack|casebook|course.?pack|IP_ECP|sep\.?\s*dist/i.test(name)) return 'case';
+  if (/outline|syllabus/i.test(name)) return 'syllabus';
+  return 'reading';
+}
+
+/** Only text-extractable files are worth ingesting (skip images, etc.). */
+function isReadable(contentType: string | undefined, name: string): boolean {
+  const ct = (contentType ?? '').toLowerCase();
+  if (ct.includes('pdf') || /\.pdf$/i.test(name)) return true;
+  if (ct.startsWith('text/') || /\.(txt|md|csv)$/i.test(name)) return true;
+  return false; // images (png/svg/jpg) and docx (no clean extractor yet) are skipped
+}
+
+/**
+ * Find and read EVERY readable file in a course, from every source: the course
+ * files list (or its module-item fallback when the list is 403), plus everything
+ * linked from the syllabus (outline, coursepack/casebook, readings, textbook).
+ * Each PDF/text file is downloaded, its text extracted in memory, and stored as
+ * material; bytes are discarded. Idempotent on (source, file id). Images and
+ * LTI/paywalled items are skipped.
+ */
+async function syncCourseMaterials(
   db: SqlClient,
   client: CanvasContentClient,
   canvasCourseId: number,
-): Promise<boolean> {
-  const course = (await client.getCourse(canvasCourseId)) as CanvasCourse & { syllabus_body?: string };
-  const html = course.syllabus_body ?? '';
-  // First Canvas file link in the syllabus is (by Ivey convention) the outline.
-  const fileId = /\/files\/(\d+)/.exec(html)?.[1];
-  if (!fileId) return false;
+): Promise<number> {
   const row = await db.query<{ id: string }>(`SELECT id FROM courses WHERE source='canvas' AND source_id=$1`, [
     String(canvasCourseId),
   ]);
   const courseId = row.rows[0]?.id;
-  if (!courseId) return false;
+  if (!courseId) return 0;
+
+  // Gather candidate files from every source, deduped by file id.
+  const byId = new Map<string, CanvasFile>();
   try {
-    const file = await client.getFile(canvasCourseId, Number(fileId));
-    const bytes = await client.downloadFile(file.url);
-    await ingestFileBytes(db, {
-      courseId,
-      kind: 'syllabus',
-      title: file.display_name,
-      contentType: file.content_type ?? file['content-type'] ?? null,
-      source: 'canvas',
-      sourceId: String(fileId),
-      bytes,
-      minChars: 20,
-    });
-    return true;
+    for (const f of await resolveCourseFiles(client, canvasCourseId)) byId.set(String(f.id), f);
   } catch {
-    return false; // outline behind a paywall/LTI or unreadable; skip
+    // files list + modules both unavailable; syllabus links may still work
   }
+  try {
+    const course = (await client.getCourse(canvasCourseId)) as CanvasCourse & { syllabus_body?: string };
+    const ids = [
+      ...new Set(
+        [...(course.syllabus_body ?? '').matchAll(/\/files\/(\d+)/g)]
+          .map((m) => m[1])
+          .filter((x): x is string => Boolean(x)),
+      ),
+    ];
+    for (const id of ids) {
+      if (byId.has(id)) continue;
+      try {
+        byId.set(id, await client.getFile(canvasCourseId, Number(id)));
+      } catch {
+        // a single unreadable file must not stop discovery
+      }
+    }
+  } catch {
+    // no syllabus body
+  }
+
+  let ingested = 0;
+  for (const file of byId.values()) {
+    const ct = file.content_type ?? file['content-type'] ?? undefined;
+    if (!isReadable(ct, file.display_name)) continue;
+    try {
+      const bytes = await client.downloadFile(file.url);
+      const r = await ingestFileBytes(db, {
+        courseId,
+        kind: classifyMaterial(file.display_name),
+        title: file.display_name,
+        contentType: ct ?? null,
+        source: 'canvas',
+        sourceId: String(file.id),
+        bytes,
+        minChars: 20,
+      });
+      if (!r.skipped) ingested += 1;
+    } catch {
+      // paywalled/unreadable download; skip
+    }
+  }
+  return ingested;
 }
 
-/** One full Canvas sync pass: courses + assignments, calendars, and outlines. */
+/** One full Canvas sync pass: courses + assignments, calendars, and all materials. */
 export async function runCanvasSync(
   db: SqlClient,
   client: CanvasContentClient,
   bus: EventBus,
   now: () => string = () => new Date().toISOString(),
-): Promise<{ courses: number; sessions: number; outlines: number }> {
+): Promise<{ courses: number; sessions: number; materials: number }> {
   const ingest = await ingestCanvas(client, bus);
   const activeIds = (
     await db.query<{ source_id: string }>(
@@ -59,17 +110,17 @@ export async function runCanvasSync(
   const endDate = new Date(nowD.getTime() + 120 * 86_400_000).toISOString().slice(0, 10);
   const cal = await ingestCalendars(client, bus, activeIds, { startDate, endDate, now });
 
-  let outlines = 0;
+  let materials = 0;
   for (const id of activeIds) {
-    if (await syncCourseOutline(db, client, id)) outlines += 1;
+    materials += await syncCourseMaterials(db, client, id);
   }
-  return { courses: ingest.courses, sessions: cal.sessions, outlines };
+  return { courses: ingest.courses, sessions: cal.sessions, materials };
 }
 
 export interface CanvasSyncOptions {
   intervalMs?: number; // default 6h
   now?: () => string;
-  onTick?: (r: { courses: number; sessions: number; outlines: number } | { error: string }) => void;
+  onTick?: (r: { courses: number; sessions: number; materials: number } | { error: string }) => void;
 }
 
 /** Periodically sync Canvas so deadlines, sessions, and materials stay current. */
