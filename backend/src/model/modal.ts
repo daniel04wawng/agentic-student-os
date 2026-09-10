@@ -49,11 +49,21 @@ export class ModalModelProvider implements ModelProvider {
     const rf = this.responseFormat(req.format);
     if (rf) body.response_format = rf;
 
+    // Scale-to-zero endpoints return 503 while a cold container spins up. Wait
+    // and retry so a cold start surfaces as latency, not a failure/fallback.
+    const coldStartRetries = 20; // ~ up to 100s of warm-up
     let res: Response;
-    try {
-      res = await this.fetchImpl(this.chatUrl(), { method: 'POST', headers, body: JSON.stringify(body) });
-    } catch (err) {
-      throw new ModelUnavailableError(`Modal unreachable: ${err instanceof Error ? err.message : String(err)}`);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        res = await this.fetchImpl(this.chatUrl(), { method: 'POST', headers, body: JSON.stringify(body) });
+      } catch (err) {
+        throw new ModelUnavailableError(`Modal unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if ((res.status === 503 || res.status === 502) && attempt < coldStartRetries) {
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      break;
     }
     if (!res.ok) throw new ModelUnavailableError(`Modal ${res.status}`);
     const parsed = (await res.json()) as {
