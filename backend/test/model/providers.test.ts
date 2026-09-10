@@ -36,7 +36,10 @@ describe('ModalModelProvider', () => {
     let auth: string | undefined;
     const fetchImpl: FetchLike = async (_url, init) => {
       auth = (init?.headers as Record<string, string>).Authorization;
-      return new Response(JSON.stringify({ text: 'from modal' }), { status: 200 });
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'from modal' } }] }),
+        { status: 200 },
+      );
     };
     const provider = new ModalModelProvider('https://modal.run/gen', 'secret', 'gemma', fetchImpl);
     const res = await provider.generate(req);
