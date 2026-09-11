@@ -11,10 +11,8 @@ struct RootView: View {
                 .tabItem { Label("Prep", systemImage: "graduationcap") }
             DeadlinesView()
                 .tabItem { Label("Deadlines", systemImage: "calendar") }
-            RecorderView()
-                .tabItem { Label("Record", systemImage: "mic") }
             LecturesView()
-                .tabItem { Label("Lectures", systemImage: "waveform") }
+                .tabItem { Label("Lectures", systemImage: "mic") }
             ReviewView()
                 .tabItem { Label("Review", systemImage: "tray.full") }
         }
