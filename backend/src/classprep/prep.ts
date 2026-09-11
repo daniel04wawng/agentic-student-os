@@ -78,12 +78,18 @@ export interface PrepContext {
  * model's context window; the model works from what fits.
  */
 export async function gatherPrepContext(db: SqlClient, sessionId: string): Promise<PrepContext> {
-  const ctx = await db.query<{ course_id: string | null; course_name: string | null }>(
-    `SELECT s.course_id, c.name AS course_name FROM sessions s
-     LEFT JOIN courses c ON c.id = s.course_id WHERE s.id = $1`,
+  const ctx = await db.query<{
+    course_id: string | null;
+    course_name: string | null;
+    session_date: string | null;
+  }>(
+    `SELECT s.course_id, c.name AS course_name,
+            to_char(s.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS session_date
+     FROM sessions s LEFT JOIN courses c ON c.id = s.course_id WHERE s.id = $1`,
     [sessionId],
   );
   const courseId = ctx.rows[0]?.course_id ?? null;
+  const sessionDate = ctx.rows[0]?.session_date ?? null;
   // The session's 1-based ordinal within its course, ordered by start time. Used
   // to match the Nth class meeting to the Nth case in a multi-case coursepack.
   const ordinal = courseId
@@ -110,6 +116,22 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
         [courseId],
       )
     : { rows: [] as { titles: string[] | null }[] };
+  // Exact date -> case mapping from the course outline, when we have it:
+  // profile.case_schedule is { "YYYY-MM-DD": <0-based case index> }. It overrides
+  // the order-based fallback for the specific dates it lists.
+  const scheduled =
+    courseId && sessionDate
+      ? (
+          await db.query<{ idx: number | null }>(
+            `SELECT (profile->'case_schedule'->>$2)::int AS idx
+             FROM course_profiles WHERE course_id = $1`,
+            [courseId, sessionDate],
+          )
+        ).rows[0]?.idx ?? null
+      : null;
+  // 0-based index of the case this session should prep: the outline's exact
+  // assignment when present, otherwise the Nth meeting -> Nth case fallback.
+  const caseIndex = scheduled ?? ordinal - 1;
   // Cases first (they carry the numbers to work), then other materials.
   const materialRows = courseId
     ? await db.query<{ title: string | null; kind: string; text: string }>(
@@ -133,7 +155,7 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
     if (r.kind === 'case') {
       const cases = splitCoursepack(r.text);
       if (cases.length > 1) {
-        const picked = cases[Math.min(ordinal - 1, cases.length - 1)]!;
+        const picked = cases[Math.min(Math.max(caseIndex, 0), cases.length - 1)]!;
         title = r.title ? `${r.title} - ${picked.title}` : picked.title;
         text = picked.text;
       }
