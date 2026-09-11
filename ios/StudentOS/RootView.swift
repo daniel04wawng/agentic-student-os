@@ -13,6 +13,8 @@ struct RootView: View {
                 .tabItem { Label("Deadlines", systemImage: "calendar") }
             RecorderView()
                 .tabItem { Label("Record", systemImage: "mic") }
+            LecturesView()
+                .tabItem { Label("Lectures", systemImage: "waveform") }
             ReviewView()
                 .tabItem { Label("Review", systemImage: "tray.full") }
         }

@@ -4,7 +4,7 @@ import type { SqlClient } from '../db/client.js';
 import { approveArtifact, isApproved } from '../approval/approval.js';
 import { dismissNotification, registerDevice } from '../notifications/service.js';
 import { getReviewPacket } from '../review/packet.js';
-import { getDeadlines, getReview, getToday, getUpcomingPreps } from '../views/queries.js';
+import { getDeadlines, getLectures, getReview, getToday, getUpcomingPreps } from '../views/queries.js';
 
 /** Parse with a schema; on failure send 400 and return undefined. */
 function parseOr400<S extends ZodTypeAny>(
@@ -58,6 +58,8 @@ export function registerApiRoutes(app: FastifyInstance, db: SqlClient): void {
   app.get('/review', async () => getReview(db));
 
   app.get('/preps', async () => getUpcomingPreps(db, { now: new Date().toISOString() }));
+
+  app.get('/lectures', async () => getLectures(db));
 
   app.get('/assignments/:id/review-packet', async (req, reply) => {
     const params = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);

@@ -1,14 +1,11 @@
-"""Host the Fastify backend (API + background schedulers) on Modal.
+"""Host the Fastify backend (API + background loops) on Modal.
 
-Why a persistent container: the backend runs in-process schedulers (auto-prep +
-Canvas sync via setInterval), so it must stay alive rather than scale to zero.
-`min_containers=1` keeps one CPU container warm. CPU-only, so it is far cheaper
-than a GPU, but it IS always-on (roughly a few dollars a month of CPU time) --
-that is the trade for having prep happen ahead of class without your Mac.
-
-If you would rather pay $0 at idle, the alternative is scale-to-zero for the API
-plus Modal scheduled functions (modal.Period) for the two loops; that needs a
-one-shot tick entrypoint and is a follow-up.
+Architecture: the API is a scale-to-zero web endpoint (PREP_SCHEDULER=0, no
+in-process loops), so it costs ~$0 at idle. Three scheduled functions
+(modal.Period) drive the background work via the one-shot `tick` entrypoint:
+prep (every 30 min), Canvas sync (every 6h), and lecture notes (every 15 min).
+The heavy model calls live in the ticks -- which run to completion -- never as
+fire-and-forget on the web endpoint, where a scale-down could cut them off.
 
 Deploy:
     modal secret create student-os-backend-env \
@@ -76,7 +73,7 @@ def serve():
     subprocess.Popen(["node", "backend/dist/index.js"], cwd="/app")
 
 
-@app.function(image=image, secrets=[SECRET], schedule=modal.Period(minutes=30), timeout=900)
+@app.function(image=image, secrets=[SECRET], schedule=modal.Period(minutes=30), timeout=1800)
 def prep_tick():
     """Prepare upcoming classes ahead of time (every 30 min)."""
     subprocess.run(["node", "backend/dist/tick.js", "prep"], cwd="/app", check=False)
@@ -86,3 +83,15 @@ def prep_tick():
 def canvas_tick():
     """Refresh Canvas courses / deadlines / materials (every 6h)."""
     subprocess.run(["node", "backend/dist/tick.js", "sync"], cwd="/app", check=False)
+
+
+@app.function(
+    image=image,
+    secrets=[SECRET],
+    volumes={"/data/recordings": audio_volume},  # reads uploaded audio to transcribe
+    schedule=modal.Period(minutes=15),
+    timeout=1800,
+)
+def lectures_tick():
+    """Transcribe stored recordings and turn transcripts into AI notes (every 15 min)."""
+    subprocess.run(["node", "backend/dist/tick.js", "lectures"], cwd="/app", check=False)

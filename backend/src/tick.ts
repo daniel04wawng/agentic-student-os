@@ -4,10 +4,13 @@ import { prepareUpcoming } from './classprep/prep.js';
 import { loadConfig } from './config.js';
 import { makeDbClient } from './db/pool.js';
 import { EventBus } from './events/bus.js';
+import { runLectureTick } from './lectures/process.js';
 import { createModelProvider } from './model/factory.js';
 import { ModelService } from './model/service.js';
 import { registerCanvasProjectors } from './projections/canvas.js';
 import { runCanvasSync } from './scheduler/canvas-sync.js';
+import { LocalStorageProvider } from './storage/provider.js';
+import { createTranscriptionProvider } from './transcription/factory.js';
 
 /**
  * One-shot background tick, run by an external scheduler (e.g. a Modal scheduled
@@ -44,6 +47,15 @@ async function main(): Promise<void> {
       includePrepped: regen,
     });
     console.log(`[tick:${cmd}]`, JSON.stringify({ prepared }));
+  } else if (cmd === 'lectures') {
+    // Finish any outstanding transcription, then turn completed lecture
+    // transcripts into Granola-style notes. Runs to completion here (not on the
+    // scale-to-zero web endpoint) so a cold model call is never cut off.
+    const storage = new LocalStorageProvider(config.RECORDINGS_DIR);
+    const transcription = createTranscriptionProvider(config);
+    const model = new ModelService(createModelProvider(config));
+    const r = await runLectureTick(db, storage, transcription, bus, model);
+    console.log('[tick:lectures]', JSON.stringify(r));
   } else {
     throw new Error(`unknown tick command '${cmd ?? ''}' (use prep|sync)`);
   }

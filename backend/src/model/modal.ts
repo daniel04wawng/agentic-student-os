@@ -49,14 +49,23 @@ export class ModalModelProvider implements ModelProvider {
     const rf = this.responseFormat(req.format);
     if (rf) body.response_format = rf;
 
-    // Scale-to-zero endpoints return 503 while a cold container spins up. Wait
-    // and retry so a cold start surfaces as latency, not a failure/fallback.
-    const coldStartRetries = 20; // ~ up to 100s of warm-up
-    let res: Response;
+    // Scale-to-zero endpoints spin a cold container up on first hit. For a large
+    // model that can take several minutes, during which the endpoint returns
+    // 503/502 or briefly drops the connection. Retry through the whole warm-up so
+    // an unattended prep/notes run surfaces a cold start as latency, not an empty
+    // fallback. ~10 min budget comfortably exceeds the observed ~5 min cold start.
+    const coldStartRetries = 120; // 120 x 5s = ~10 min of warm-up
+    let res: Response | undefined;
     for (let attempt = 0; ; attempt += 1) {
       try {
         res = await this.fetchImpl(this.chatUrl(), { method: 'POST', headers, body: JSON.stringify(body) });
       } catch (err) {
+        // A dropped connection during warm-up is retryable; only give up once
+        // the cold-start budget is spent.
+        if (attempt < coldStartRetries) {
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
         throw new ModelUnavailableError(`Modal unreachable: ${err instanceof Error ? err.message : String(err)}`);
       }
       if ((res.status === 503 || res.status === 502) && attempt < coldStartRetries) {
@@ -65,7 +74,7 @@ export class ModalModelProvider implements ModelProvider {
       }
       break;
     }
-    if (!res.ok) throw new ModelUnavailableError(`Modal ${res.status}`);
+    if (!res || !res.ok) throw new ModelUnavailableError(`Modal ${res?.status ?? 'unreachable'}`);
     const parsed = (await res.json()) as {
       model?: string;
       choices?: { message?: { content?: string } }[];

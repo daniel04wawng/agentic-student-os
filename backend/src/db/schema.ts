@@ -112,6 +112,9 @@ export type ReadinessStatus = (typeof READINESS_STATUSES)[number];
 export const CLASS_PREP_STATUSES = ['pending', 'ready', 'failed'] as const;
 export type ClassPrepStatus = (typeof CLASS_PREP_STATUSES)[number];
 
+export const LECTURE_NOTES_STATUSES = ['pending', 'ready', 'failed'] as const;
+export type LectureNotesStatus = (typeof LECTURE_NOTES_STATUSES)[number];
+
 export const WRITING_SAMPLE_SOURCES = ['self', 'instructor', 'exemplar'] as const;
 export type WritingSampleSource = (typeof WRITING_SAMPLE_SOURCES)[number];
 
@@ -150,6 +153,7 @@ export const DB_ENUMS = {
   summary_scope: SUMMARY_SCOPES,
   readiness_status: READINESS_STATUSES,
   class_prep_status: CLASS_PREP_STATUSES,
+  lecture_notes_status: LECTURE_NOTES_STATUSES,
   writing_sample_source: WRITING_SAMPLE_SOURCES,
   approval_status: APPROVAL_STATUSES,
   submission_status: SUBMISSION_STATUSES,
@@ -177,6 +181,7 @@ export const TABLES = [
   'summaries',
   'readiness_contracts',
   'class_preps',
+  'lecture_notes',
   'writing_samples',
   'review_packets',
   'approvals',

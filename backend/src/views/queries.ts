@@ -167,6 +167,60 @@ export async function getUpcomingPreps(
   }));
 }
 
+export interface LectureContent {
+  summary: string;
+  key_points: string[];
+  topics: string[];
+  action_items: string[];
+  questions: string[];
+}
+
+export interface LectureView {
+  transcript_id: string;
+  course_name: string | null;
+  title: string | null;
+  /** Recording capture time (ISO Z), or null if unknown. */
+  recorded_at: string | null;
+  content: LectureContent;
+}
+
+/**
+ * Recorded lectures with their AI notes, most recent first. Joined to the
+ * resolved session/course when the recording was matched to one.
+ */
+export async function getLectures(
+  db: SqlClient,
+  q: { limit?: number } = {},
+): Promise<LectureView[]> {
+  const { rows } = await db.query<{
+    transcript_id: string;
+    course_name: string | null;
+    title: string | null;
+    recorded_at: unknown;
+    content: LectureContent;
+  }>(
+    `SELECT n.transcript_id, c.name AS course_name,
+            COALESCE(s.title, r.title) AS title,
+            to_char(r.captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
+            n.content
+     FROM lecture_notes n
+     JOIN recordings r ON r.id = n.recording_id
+     LEFT JOIN sessions s ON s.id = n.session_id
+     LEFT JOIN courses c ON c.id = n.course_id
+     WHERE n.status = 'ready'
+     ORDER BY r.captured_at DESC NULLS LAST, n.generated_at DESC
+     LIMIT $1`,
+    [q.limit ?? 100],
+  );
+  return rows.map((r) => ({
+    transcript_id: r.transcript_id,
+    course_name: r.course_name,
+    title: r.title,
+    recorded_at: r.recorded_at ? String(r.recorded_at) : null,
+    content: r.content,
+  }));
+}
+
 export interface ReviewView {
   notifications: { id: string; title: string; body: string | null; subject_type: string | null; subject_id: string | null }[];
   assignments: { id: string; title: string }[];

@@ -78,3 +78,20 @@ struct PrepItem: Codable, Identifiable, Hashable {
     let content: PrepContent
     var id: String { sessionId }
 }
+
+struct LectureContent: Codable, Hashable {
+    let summary: String
+    let keyPoints: [String]
+    let topics: [String]
+    let actionItems: [String]
+    let questions: [String]
+}
+
+struct LectureItem: Codable, Identifiable, Hashable {
+    let transcriptId: String
+    let courseName: String?
+    let title: String?
+    let recordedAt: String?
+    let content: LectureContent
+    var id: String { transcriptId }
+}
