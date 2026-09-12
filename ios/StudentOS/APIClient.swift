@@ -69,6 +69,29 @@ struct APIClient {
         try await send(request("lectures"))
     }
 
+    func assignments() async throws -> [AssignmentItem] {
+        try await send(request("assignments"))
+    }
+
+    func assignmentDraft(id: String) async throws -> AssignmentDraft {
+        try await send(request("assignments/\(id)/draft"))
+    }
+
+    /// Approve the current draft (ties approval to the exact artifact version).
+    @discardableResult
+    func approve(artifactId: String) async throws -> Bool {
+        struct Approved: Decodable { let approved: Bool }
+        let r: Approved = try await send(request("artifacts/\(artifactId)/approve", method: "POST"))
+        return r.approved
+    }
+
+    /// Submit the approved draft to Canvas. Returns the outcome status.
+    func submit(assignmentId: String) async throws -> String {
+        struct Result: Decodable { let status: String; let reason: String? }
+        let r: Result = try await send(request("assignments/\(assignmentId)/submit", method: "POST"))
+        return r.status
+    }
+
     func registerDevice(token: String, platform: String = "ios") async throws {
         let payload = try JSONSerialization.data(withJSONObject: ["token": token, "platform": platform])
         let req = request("devices", method: "POST", body: payload)

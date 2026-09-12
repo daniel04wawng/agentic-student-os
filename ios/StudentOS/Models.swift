@@ -95,3 +95,23 @@ struct LectureItem: Codable, Identifiable, Hashable {
     let content: LectureContent
     var id: String { transcriptId }
 }
+
+struct AssignmentItem: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let courseName: String?
+    let status: String
+    let type: String?
+    let dueAt: String?
+    let hasDraft: Bool
+}
+
+struct AssignmentDraft: Codable, Hashable {
+    let assignmentId: String
+    let artifactId: String?
+    let title: String
+    let prompt: String?
+    let draftText: String?
+    let status: String
+    let approved: Bool
+}

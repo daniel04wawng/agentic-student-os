@@ -13,8 +13,8 @@ struct RootView: View {
                 .tabItem { Label("Deadlines", systemImage: "calendar") }
             LecturesView()
                 .tabItem { Label("Lectures", systemImage: "mic") }
-            ReviewView()
-                .tabItem { Label("Review", systemImage: "tray.full") }
+            AssignmentsView()
+                .tabItem { Label("Work", systemImage: "tray.full") }
         }
     }
 }
