@@ -22,7 +22,7 @@ interface RawDiscussion {
   title: string;
   message?: string | null;
   html_url?: string | null;
-  assignment?: { due_at?: string | null } | null;
+  assignment?: { id?: number; due_at?: string | null } | null;
   lock_at?: string | null;
   todo_date?: string | null;
 }
@@ -84,15 +84,28 @@ export async function ingestDiscussions(
     if (!d.message) continue; // announcements / empty topics carry no prep
     const body = toText(d.message);
     const dueAt = d.assignment?.due_at ?? d.lock_at ?? d.todo_date ?? null;
-    await db.query(
-      `INSERT INTO assignments (course_id, title, description, status, due_at, source, source_id, source_url, metadata)
-       VALUES ($1,$2,$3,'not_started',$4,'canvas'::provider,$5,$6,
-               jsonb_build_object('type','discussion','discussion_id',$7::int))
-       ON CONFLICT (source, source_id) WHERE source_id IS NOT NULL DO UPDATE
-         SET title = excluded.title, description = excluded.description, due_at = excluded.due_at,
-             source_url = excluded.source_url, metadata = assignments.metadata || excluded.metadata`,
-      [courseId, d.title, body, dueAt, `discussion:${d.id}`, d.html_url ?? null, d.id],
+    // A GRADED discussion is also ingested as an assignment (source_id = its
+    // Canvas assignment id). Merge the discussion_id into that canonical row so
+    // there's one assignment and submit knows which forum to post to. Only an
+    // UNGRADED discussion (no linked assignment) becomes its own row.
+    const assignmentSourceId = d.assignment?.id ? String(d.assignment.id) : `discussion:${d.id}`;
+    const merge = { type: 'discussion', discussion_id: d.id };
+    const upd = await db.query<{ id: string }>(
+      `UPDATE assignments SET description = $1, source_url = COALESCE(source_url, $2),
+              metadata = metadata || $3::jsonb
+       WHERE source = 'canvas' AND source_id = $4 RETURNING id`,
+      [body, d.html_url ?? null, JSON.stringify(merge), assignmentSourceId],
     );
+    if (upd.rows.length === 0) {
+      await db.query(
+        `INSERT INTO assignments (course_id, title, description, status, due_at, source, source_id, source_url, metadata)
+         VALUES ($1,$2,$3,'not_started',$4,'canvas'::provider,$5,$6, $7::jsonb)
+         ON CONFLICT (source, source_id) WHERE source_id IS NOT NULL DO UPDATE
+           SET title = excluded.title, description = excluded.description, due_at = excluded.due_at,
+               source_url = excluded.source_url, metadata = assignments.metadata || excluded.metadata`,
+        [courseId, d.title, body, dueAt, assignmentSourceId, d.html_url ?? null, JSON.stringify(merge)],
+      );
+    }
     n += 1;
     // Feed prep: this discussion's questions become the plan for its due date.
     if (dueAt) {
