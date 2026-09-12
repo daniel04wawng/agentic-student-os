@@ -1,6 +1,6 @@
 import type { SqlClient } from '../db/client.js';
 import { splitCoursepack } from '../materials/split.js';
-import { matchScheduleToCases, setCaseSchedule, type ScheduleEntry } from './schedule.js';
+import { matchScheduleToCases, setCaseSchedule, setSessionPlans, type ScheduleEntry } from './schedule.js';
 
 /**
  * Ivey delivers the per-session plan (which case each class date is assigned)
@@ -29,40 +29,105 @@ function decodeEntities(s: string): string {
  * (a theory/intro/exam day) yields caseTitle null and is skipped by the caller.
  */
 export function parseSessionSummary(html: string): ScheduleEntry[] {
+  return parseSessionPlans(html)
+    .filter((p) => p.caseTitle)
+    .map((p) => ({ date: p.date, caseTitle: p.caseTitle! }));
+}
+
+/** The professor's published plan for one class meeting. */
+export interface SessionPlan {
+  date: string; // YYYY-MM-DD
+  session: number;
+  topic: string | null; // the session's theme/title
+  readings: string[]; // "Watch:"/"Read:" items
+  questions: string[]; // the prof's study/prep questions
+  caseTitle: string | null; // the assigned case, if any
+}
+
+interface Segment {
+  date: string;
+  session: number;
+  seg: string;
+}
+
+/** Split a rendered Session Summary page into one text segment per published session. */
+function sessionSegments(html: string): Segment[] {
   const joined = decodeEntities(
     html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' '),
   ).replace(/\s+/g, ' ');
   const re = /([A-Z][a-z]+) (\d{1,2}), (\d{4})\s+Details \(Session (\d+)\)/g;
-  const marks: { month: string; day: number; year: number; idx: number }[] = [];
+  const marks: { date: string; session: number; idx: number }[] = [];
   for (let m = re.exec(joined); m; m = re.exec(joined)) {
-    marks.push({ month: m[1]!, day: Number(m[2]), year: Number(m[3]), idx: m.index });
+    const month = MONTHS[m[1]!];
+    if (month === undefined) continue;
+    const date = `${m[3]}-${String(month + 1).padStart(2, '0')}-${String(Number(m[2])).padStart(2, '0')}`;
+    marks.push({ date, session: Number(m[4]), idx: m.index });
   }
-  const entries: ScheduleEntry[] = [];
-  for (let i = 0; i < marks.length; i += 1) {
-    const seg = joined.slice(marks[i]!.idx, marks[i + 1]?.idx ?? joined.length);
-    // A session can carry several "Case:" tokens: file-link artifacts plus the
-    // real assignment. Take the first that is a real title, trimmed at its
-    // product code / study-question tail (Ivey prints "Title (HBS 702049) Q1...").
-    let caseTitle: string | null = null;
-    for (const piece of seg.split(/\bCase:\s*/).slice(1)) {
-      // A file-link artifact BEGINS with the anchor tag; the check must be
-      // anchored, since a real title's trailing text can also mention a link.
-      if (/^<|^a id=/i.test(piece.trim())) continue;
-      const stop = piece.search(
-        /\s(?:HBS|Ivey)\b|\((?:HBS|Ivey|9B|W\d)|\?|\s\d+\.\s|\b(?:Watch|Read|Prepare|Study Questions):/i,
-      );
-      const c = (stop >= 0 ? piece.slice(0, stop) : piece).replace(/[.,;\s]+$/, '').trim();
-      if (c.length >= 4) {
-        caseTitle = c;
-        break;
+  return marks.map((mk, i) => ({
+    date: mk.date,
+    session: mk.session,
+    seg: joined.slice(mk.idx, marks[i + 1]?.idx ?? joined.length),
+  }));
+}
+
+/** Extract the assigned case title from a session segment (null when none). */
+function caseFromSegment(seg: string): string | null {
+  // A session can carry several "Case:" tokens: file-link artifacts plus the real
+  // assignment. Take the first real title, trimmed at its product code / study-
+  // question tail (Ivey prints "Title (HBS 702049) Q1...").
+  for (const piece of seg.split(/\bCase:\s*/).slice(1)) {
+    if (/^<|^a id=/i.test(piece.trim())) continue; // a file-link artifact
+    const stop = piece.search(
+      /\s(?:HBS|Ivey)\b|\((?:HBS|Ivey|9B|W\d)|\?|\s\d+\.\s|\b(?:Watch|Read|Prepare|Study Questions):/i,
+    );
+    const c = (stop >= 0 ? piece.slice(0, stop) : piece).replace(/[.,;\s]+$/, '').trim();
+    if (c.length >= 4) return c;
+  }
+  return null;
+}
+
+/**
+ * Parse an Ivey "Session Summary" page into full per-session plans: the topic,
+ * the assigned readings, the professor's study questions, and the case (if any).
+ * Only sessions the professor has published appear.
+ */
+export function parseSessionPlans(html: string): SessionPlan[] {
+  return sessionSegments(html).map(({ date, session, seg }) => {
+    const topicM = /SESSION \d+:\s*(.+?)(?=\s(?:Watch:|Read:|Prepare:|Case:|Details|$))/i.exec(seg);
+    const readings: string[] = [];
+    for (const rm of seg.matchAll(/\b(?:Watch|Read):\s*(.+?)(?=\s(?:Watch:|Read:|Prepare:|Case:|Details|$))/gi)) {
+      const r = rm[1]!.replace(/https?:\/\/\S+/g, '').replace(/[.,;\s]+$/, '').trim();
+      if (r.length >= 6 && !/[<>]|id=|href=|instructure/i.test(r)) readings.push(r.slice(0, 200));
+    }
+    // The prof's study questions: clauses that START with a question word and end
+    // in "?", which cleanly separates run-together questions and skips the case/
+    // reading lines. Noise (schedule headers, citations) is filtered out.
+    const NOISE = /Session \d|Details|Watch:|Read:|Prepare:|Case:|http|instructure|id=|\b(?:19|20)\d\d\b|[<>]/i;
+    const seen = new Set<string>();
+    const questions: string[] = [];
+    // Case-SENSITIVE question-word start (a Capitalized word begins a sentence;
+    // "in Africa" mid-phrase must not start a match). Ends at "?".
+    for (const qm of seg.matchAll(
+      /\b(?:What|How|Why|Is|Are|Should|Do|Does|Can|Could|Would|Will|Which|Who|Where|When|Explain|Describe|Discuss|If|In)\b[^?]{5,240}\?/g,
+    )) {
+      const q = qm[0]!.replace(/^\d+\.\s*/, '').trim();
+      const letters = q.replace(/[^A-Za-z]/g, '');
+      const upper = (q.match(/[A-Z]/g)?.length ?? 0) / (letters.length || 1);
+      if (upper > 0.6) continue; // an ALL-CAPS topic header, not a question
+      if (!NOISE.test(q) && !seen.has(q)) {
+        seen.add(q);
+        questions.push(q);
       }
     }
-    const month = MONTHS[marks[i]!.month];
-    if (month === undefined) continue;
-    const date = `${marks[i]!.year}-${String(month + 1).padStart(2, '0')}-${String(marks[i]!.day).padStart(2, '0')}`;
-    entries.push({ date, caseTitle: caseTitle ?? '' });
-  }
-  return entries.filter((e) => e.caseTitle);
+    return {
+      date,
+      session,
+      topic: topicM ? topicM[1]!.replace(/[.,;\s]+$/, '').trim().slice(0, 200) : null,
+      readings: [...new Set(readings)].slice(0, 6),
+      questions: questions.slice(0, 8),
+      caseTitle: caseFromSegment(seg),
+    };
+  });
 }
 
 interface CanvasAuth {
@@ -169,13 +234,15 @@ export async function launchLtiTool(
 }
 
 /**
- * Refresh a course's exact date->case schedule from its Ivey Session Summary
- * tool. Best-effort and idempotent: launches the tool, parses published
- * sessions, matches each to a case in the course's coursepack, and writes the
- * date->case-index map. A no-op (returns 0) when the tool, coursepack, or any
- * confident match is missing. Never throws.
+ * Refresh a course's per-session plans from its Ivey Session Summary tool.
+ * Best-effort and idempotent: launches the tool, parses every published
+ * session's topic / readings / study questions / case, writes them to the course
+ * profile (so prep is session-specific and preps the prof's own questions), and
+ * -- when the course has a multi-case coursepack -- also writes the exact
+ * date->case-index map. Returns the number of published sessions found. A no-op
+ * (0) when the tool is absent or unreachable. Never throws.
  */
-export async function syncIveyCaseSchedule(
+export async function syncIveySessionPlans(
   db: SqlClient,
   auth: CanvasAuth,
   canvasCourseId: number,
@@ -187,22 +254,30 @@ export async function syncIveyCaseSchedule(
     if (!toolId) return 0;
     const html = await launchLtiTool(auth, canvasCourseId, toolId, fetchImpl);
     if (!html) return 0;
-    const entries = parseSessionSummary(html);
-    if (entries.length === 0) return 0;
+    const plans = parseSessionPlans(html);
+    if (plans.length === 0) return 0;
 
+    const byDate: Record<string, { topic: string | null; readings: string[]; questions: string[]; caseTitle: string | null }> = {};
+    for (const p of plans) {
+      byDate[p.date] = { topic: p.topic, readings: p.readings, questions: p.questions, caseTitle: p.caseTitle };
+    }
+    await setSessionPlans(db, courseId, byDate);
+
+    // If this course has a multi-case coursepack, also pin each date to its case.
     const cp = await db.query<{ text: string }>(
       `SELECT text FROM materials WHERE course_id = $1 AND kind = 'case'
        ORDER BY length(text) DESC LIMIT 1`,
       [courseId],
     );
-    if (cp.rows.length === 0) return 0;
-    const cases = splitCoursepack(cp.rows[0]!.text);
-    if (cases.length < 2) return 0;
-
-    const map = matchScheduleToCases(cases, entries);
-    if (Object.keys(map).length === 0) return 0;
-    await setCaseSchedule(db, courseId, map);
-    return Object.keys(map).length;
+    if (cp.rows.length > 0) {
+      const cases = splitCoursepack(cp.rows[0]!.text);
+      if (cases.length >= 2) {
+        const entries = plans.filter((p) => p.caseTitle).map((p) => ({ date: p.date, caseTitle: p.caseTitle! }));
+        const map = matchScheduleToCases(cases, entries);
+        if (Object.keys(map).length > 0) await setCaseSchedule(db, courseId, map);
+      }
+    }
+    return plans.length;
   } catch {
     return 0;
   }

@@ -1,7 +1,7 @@
 import { resolveCourseFiles, type CanvasContentClient } from '../canvas/client.js';
 import { ingestCalendars, ingestCanvas } from '../canvas/ingest.js';
 import type { CanvasCourse, CanvasFile } from '../canvas/types.js';
-import { syncIveyCaseSchedule } from '../classprep/ivey-schedule.js';
+import { syncIveySessionPlans } from '../classprep/ivey-schedule.js';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
 import { ingestFileBytes } from '../materials/service.js';
@@ -127,7 +127,7 @@ export async function runCanvasSync(
     materials += await syncCourseMaterials(db, client, Number(c.source_id));
     // Materials are ingested first so the coursepack exists to match against.
     if (opts.iveyAuth) {
-      scheduled += await syncIveyCaseSchedule(db, opts.iveyAuth, Number(c.source_id), c.id);
+      scheduled += await syncIveySessionPlans(db, opts.iveyAuth, Number(c.source_id), c.id);
     }
   }
   return { courses: ingest.courses, sessions: cal.sessions, materials, scheduled };

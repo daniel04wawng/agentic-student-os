@@ -73,3 +73,30 @@ export async function setCaseSchedule(
     [courseId, JSON.stringify(dateToIndex)],
   );
 }
+
+/** The professor's plan for one class date, as prep consumes it. */
+export interface StoredSessionPlan {
+  topic: string | null;
+  readings: string[];
+  questions: string[];
+  caseTitle: string | null;
+}
+
+/**
+ * Persist a course's per-date session plans (topic / readings / study questions
+ * / case) into the course profile, where prep reads them to make each class's
+ * prep session-specific and to prep against the professor's own questions.
+ */
+export async function setSessionPlans(
+  db: SqlClient,
+  courseId: string,
+  dateToPlan: Record<string, StoredSessionPlan>,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO course_profiles (course_id, profile)
+     VALUES ($1, jsonb_build_object('session_plans', $2::jsonb))
+     ON CONFLICT (course_id) DO UPDATE
+       SET profile = course_profiles.profile || jsonb_build_object('session_plans', $2::jsonb)`,
+    [courseId, JSON.stringify(dateToPlan)],
+  );
+}

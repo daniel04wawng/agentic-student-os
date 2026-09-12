@@ -63,12 +63,22 @@ export interface PrepMaterial {
   text: string;
 }
 
+/** The professor's published plan for this session (from the Ivey Session Summary). */
+export interface SessionPlanContent {
+  topic: string | null;
+  readings: string[];
+  questions: string[];
+  caseTitle: string | null;
+}
+
 export interface PrepContext {
   courseName: string | null;
   priorSummaries: string[];
   readings: string[];
   /** Actual case/reading text for the session's course, bounded for the model. */
   materials: PrepMaterial[];
+  /** The professor's plan for this specific class date, when known. */
+  sessionPlan?: SessionPlanContent | null;
 }
 
 /**
@@ -132,6 +142,18 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
   // 0-based index of the case this session should prep: the outline's exact
   // assignment when present, otherwise the Nth meeting -> Nth case fallback.
   const caseIndex = scheduled ?? ordinal - 1;
+  // The professor's published plan for THIS date (topic / readings / questions),
+  // when we have it. Makes prep session-specific and lets us prep his own
+  // questions instead of ones the model invents.
+  const sessionPlan =
+    courseId && sessionDate
+      ? (
+          await db.query<{ plan: SessionPlanContent | null }>(
+            `SELECT profile->'session_plans'->$2 AS plan FROM course_profiles WHERE course_id = $1`,
+            [courseId, sessionDate],
+          )
+        ).rows[0]?.plan ?? null
+      : null;
   // Cases first (they carry the numbers to work), then other materials.
   const materialRows = courseId
     ? await db.query<{ title: string | null; kind: string; text: string }>(
@@ -170,6 +192,7 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
     priorSummaries: summaries.rows.map((r) => r.text),
     readings: readings.rows[0]?.titles ?? [],
     materials,
+    sessionPlan,
   };
 }
 
@@ -178,10 +201,11 @@ export function buildPrepDeterministic(context: PrepContext): Prep {
   const materials = context.materials ?? [];
   const materialTitles = materials.map((m) => m.title ?? m.kind);
   return {
-    overview: `Prep for ${context.courseName ?? 'class'} based on ${context.priorSummaries.length} prior session(s) and ${materials.length} material(s).`,
+    overview: `Prep for ${context.courseName ?? 'class'}${context.sessionPlan?.topic ? ` - ${context.sessionPlan.topic}` : ''} based on ${context.priorSummaries.length} prior session(s) and ${materials.length} material(s).`,
     prior_recap: context.priorSummaries.slice(-2).join(' '),
     key_points: [...context.readings.slice(0, 5), ...materialTitles].slice(0, 6),
-    questions: [],
+    // The professor's own questions when we have them, else none (no fabrication).
+    questions: context.sessionPlan?.questions ?? [],
     // No model available: we cannot work the numbers, so leave the worked
     // sections empty rather than fabricate an answer.
     analysis: '',
@@ -192,6 +216,14 @@ export function buildPrepDeterministic(context: PrepContext): Prep {
 /** Render the gathered context into a single prompt the model reads. */
 function renderContext(context: PrepContext): string {
   const parts: string[] = [`COURSE: ${context.courseName ?? 'Unknown'}`];
+  const plan = context.sessionPlan;
+  if (plan?.topic) parts.push(`\nTHIS SESSION'S TOPIC: ${plan.topic}`);
+  if (plan?.readings?.length) parts.push(`\nASSIGNED READINGS:\n- ${plan.readings.join('\n- ')}`);
+  if (plan?.questions?.length) {
+    parts.push(
+      `\nTHE PROFESSOR'S PREP QUESTIONS (prepare a clear answer to EACH of these; put the worked reasoning in analysis and the answers in worked_answer, and return them as the questions field):\n- ${plan.questions.join('\n- ')}`,
+    );
+  }
   if (context.priorSummaries.length > 0) {
     parts.push(`\nPRIOR LECTURE SUMMARIES:\n${context.priorSummaries.slice(-3).join('\n---\n')}`);
   }
@@ -235,9 +267,13 @@ async function generatePrep(db: SqlClient, model: ModelService, sessionId: strin
   ];
   // 2048 output tokens comfortably fits a bounded prep; the field-length limits
   // in the prompt keep the JSON from being truncated before it closes.
-  return model.generateStructured({ messages, maxTokens: 2048 }, PrepSchema, {
+  const prep = await model.generateStructured({ messages, maxTokens: 2048 }, PrepSchema, {
     fallback: () => buildPrepDeterministic(context),
   });
+  // When the professor published his own prep questions, those are authoritative
+  // -- prep against exactly what he'll ask, not questions the model invented.
+  if (context.sessionPlan?.questions?.length) prep.questions = context.sessionPlan.questions;
+  return prep;
 }
 
 /**
