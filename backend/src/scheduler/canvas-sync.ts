@@ -1,6 +1,7 @@
 import { resolveCourseFiles, type CanvasContentClient } from '../canvas/client.js';
 import { ingestCalendars, ingestCanvas } from '../canvas/ingest.js';
 import type { CanvasCourse, CanvasFile } from '../canvas/types.js';
+import { syncIveyCaseSchedule } from '../classprep/ivey-schedule.js';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
 import { ingestFileBytes } from '../materials/service.js';
@@ -91,19 +92,29 @@ async function syncCourseMaterials(
   return ingested;
 }
 
-/** One full Canvas sync pass: courses + assignments, calendars, and all materials. */
+export interface RunCanvasSyncOptions {
+  now?: () => string;
+  /** When set, refresh each course's exact date->case schedule from its Ivey
+   * Session Summary LTI tool (best-effort). */
+  iveyAuth?: { baseUrl: string; token: string };
+}
+
+/** One full Canvas sync pass: courses + assignments, calendars, materials, and
+ * (when Ivey auth is provided) the exact per-session case schedule. */
 export async function runCanvasSync(
   db: SqlClient,
   client: CanvasContentClient,
   bus: EventBus,
-  now: () => string = () => new Date().toISOString(),
-): Promise<{ courses: number; sessions: number; materials: number }> {
+  opts: RunCanvasSyncOptions = {},
+): Promise<{ courses: number; sessions: number; materials: number; scheduled: number }> {
+  const now = opts.now ?? (() => new Date().toISOString());
   const ingest = await ingestCanvas(client, bus);
-  const activeIds = (
-    await db.query<{ source_id: string }>(
-      `SELECT source_id FROM courses WHERE status <> 'archived' AND source = 'canvas' AND source_id IS NOT NULL`,
+  const active = (
+    await db.query<{ id: string; source_id: string }>(
+      `SELECT id, source_id FROM courses WHERE status <> 'archived' AND source = 'canvas' AND source_id IS NOT NULL`,
     )
-  ).rows.map((r) => Number(r.source_id));
+  ).rows;
+  const activeIds = active.map((r) => Number(r.source_id));
 
   const nowD = new Date(now());
   const startDate = nowD.toISOString().slice(0, 10);
@@ -111,16 +122,24 @@ export async function runCanvasSync(
   const cal = await ingestCalendars(client, bus, activeIds, { startDate, endDate, now });
 
   let materials = 0;
-  for (const id of activeIds) {
-    materials += await syncCourseMaterials(db, client, id);
+  let scheduled = 0;
+  for (const c of active) {
+    materials += await syncCourseMaterials(db, client, Number(c.source_id));
+    // Materials are ingested first so the coursepack exists to match against.
+    if (opts.iveyAuth) {
+      scheduled += await syncIveyCaseSchedule(db, opts.iveyAuth, Number(c.source_id), c.id);
+    }
   }
-  return { courses: ingest.courses, sessions: cal.sessions, materials };
+  return { courses: ingest.courses, sessions: cal.sessions, materials, scheduled };
 }
 
 export interface CanvasSyncOptions {
   intervalMs?: number; // default 6h
   now?: () => string;
-  onTick?: (r: { courses: number; sessions: number; materials: number } | { error: string }) => void;
+  iveyAuth?: { baseUrl: string; token: string };
+  onTick?: (
+    r: { courses: number; sessions: number; materials: number; scheduled: number } | { error: string },
+  ) => void;
 }
 
 /** Periodically sync Canvas so deadlines, sessions, and materials stay current. */
@@ -137,7 +156,7 @@ export function startCanvasSync(
     if (inFlight) return;
     inFlight = true;
     try {
-      opts.onTick?.(await runCanvasSync(db, client, bus, now));
+      opts.onTick?.(await runCanvasSync(db, client, bus, { now, iveyAuth: opts.iveyAuth }));
     } catch (err) {
       opts.onTick?.({ error: err instanceof Error ? err.message : String(err) });
     } finally {

@@ -34,7 +34,8 @@ async function main(): Promise<void> {
   if (cmd === 'sync') {
     if (!config.CANVAS_BASE_URL || !config.CANVAS_API_TOKEN) throw new Error('Canvas is not configured');
     const canvas = new DirectCanvasClient({ baseUrl: config.CANVAS_BASE_URL, token: config.CANVAS_API_TOKEN });
-    console.log('[tick:sync]', JSON.stringify(await runCanvasSync(db, canvas, bus)));
+    const iveyAuth = { baseUrl: config.CANVAS_BASE_URL.replace(/\/$/, ''), token: config.CANVAS_API_TOKEN };
+    console.log('[tick:sync]', JSON.stringify(await runCanvasSync(db, canvas, bus, { iveyAuth })));
   } else if (cmd === 'prep' || cmd === 'regen') {
     const model = new ModelService(createModelProvider(config));
     // `regen` rebuilds preps that already exist (e.g. after a prep-logic change)
