@@ -95,3 +95,9 @@ def canvas_tick():
 def lectures_tick():
     """Transcribe stored recordings and turn transcripts into AI notes (every 15 min)."""
     subprocess.run(["node", "backend/dist/tick.js", "lectures"], cwd="/app", check=False)
+
+
+@app.function(image=image, secrets=[SECRET], schedule=modal.Period(hours=2), timeout=1800)
+def drafts_tick():
+    """Draft answers for upcoming discussion assignments for the student to review (every 2h)."""
+    subprocess.run(["node", "backend/dist/tick.js", "drafts"], cwd="/app", check=False)

@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { makeDbClient } from './db/pool.js';
 import { EventBus } from './events/bus.js';
 import { runLectureTick } from './lectures/process.js';
+import { draftPendingDiscussions } from './discussions/service.js';
 import { createModelProvider } from './model/factory.js';
 import { ModelService } from './model/service.js';
 import { registerCanvasProjectors } from './projections/canvas.js';
@@ -48,6 +49,15 @@ async function main(): Promise<void> {
       includePrepped: regen,
     });
     console.log(`[tick:${cmd}]`, JSON.stringify({ prepared }));
+  } else if (cmd === 'drafts') {
+    // Draft answers for upcoming discussion assignments (student reviews +
+    // submits). Model-heavy, so it runs here rather than on the web endpoint.
+    const model = new ModelService(createModelProvider(config));
+    const drafted = await draftPendingDiscussions(db, model, {
+      now: new Date().toISOString(),
+      withinHours: 24 * 7,
+    });
+    console.log('[tick:drafts]', JSON.stringify({ drafted }));
   } else if (cmd === 'lectures') {
     // Finish any outstanding transcription, then turn completed lecture
     // transcripts into Granola-style notes. Runs to completion here (not on the

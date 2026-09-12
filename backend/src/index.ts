@@ -43,6 +43,10 @@ async function main(): Promise<void> {
     deps.bus = bus;
     // Auto-transcribe uploaded audio (Deepgram when a key is set, else a fake).
     deps.transcription = createTranscriptionProvider(config);
+    // Canvas creds enable the submit route (posting an approved draft reply).
+    if (config.CANVAS_BASE_URL && config.CANVAS_API_TOKEN) {
+      deps.canvasAuth = { baseUrl: config.CANVAS_BASE_URL.replace(/\/$/, ''), token: config.CANVAS_API_TOKEN };
+    }
 
     // In-process schedulers (local/always-on hosting). Disabled with
     // PREP_SCHEDULER=0 when the loops run as external Modal scheduled functions

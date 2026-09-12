@@ -221,6 +221,60 @@ export async function getLectures(
   }));
 }
 
+export interface AssignmentListItem {
+  id: string;
+  title: string;
+  course_name: string | null;
+  status: string;
+  type: string | null;
+  due_at: string | null;
+  has_draft: boolean;
+}
+
+/** Assignments the student can act on (draft/review/submit), most urgent first. */
+export async function getAssignments(db: SqlClient): Promise<AssignmentListItem[]> {
+  const { rows } = await db.query<AssignmentListItem>(
+    `SELECT a.id, a.title, c.name AS course_name, a.status::text AS status,
+            a.metadata->>'type' AS type,
+            to_char(a.due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS due_at,
+            EXISTS(SELECT 1 FROM deliverables d JOIN artifacts ar ON ar.deliverable_id = d.id
+                   WHERE d.assignment_id = a.id AND ar.kind = 'text') AS has_draft
+     FROM assignments a JOIN courses c ON c.id = a.course_id
+     WHERE a.status <> 'archived' AND c.status <> 'archived'
+     ORDER BY a.due_at ASC NULLS LAST`,
+  );
+  return rows;
+}
+
+export interface AssignmentDraft {
+  assignment_id: string;
+  artifact_id: string | null;
+  title: string;
+  prompt: string | null;
+  draft_text: string | null;
+  status: string;
+  approved: boolean;
+}
+
+/** The drafted answer for one assignment, with its prompt and approval state. */
+export async function getAssignmentDraft(db: SqlClient, assignmentId: string): Promise<AssignmentDraft | null> {
+  const { rows } = await db.query<AssignmentDraft>(
+    `SELECT a.id AS assignment_id, ar.id AS artifact_id, a.title,
+            ar.metadata->>'prompt' AS prompt, ar.metadata->>'draft_text' AS draft_text,
+            a.status::text AS status,
+            COALESCE((SELECT true FROM approvals ap
+                      WHERE ap.artifact_id = ar.id AND ap.status = 'active'
+                        AND ap.remote_version IS NOT DISTINCT FROM ar.remote_version LIMIT 1), false) AS approved
+     FROM assignments a
+     LEFT JOIN deliverables d ON d.assignment_id = a.id
+     LEFT JOIN artifacts ar ON ar.deliverable_id = d.id AND ar.kind = 'text'
+     WHERE a.id = $1
+     ORDER BY ar.version DESC LIMIT 1`,
+    [assignmentId],
+  );
+  return rows[0] ?? null;
+}
+
 export interface ReviewView {
   notifications: { id: string; title: string; body: string | null; subject_type: string | null; subject_id: string | null }[];
   assignments: { id: string; title: string }[];

@@ -4,7 +4,22 @@ import type { SqlClient } from '../db/client.js';
 import { approveArtifact, isApproved } from '../approval/approval.js';
 import { dismissNotification, registerDevice } from '../notifications/service.js';
 import { getReviewPacket } from '../review/packet.js';
-import { getDeadlines, getLectures, getReview, getToday, getUpcomingPreps } from '../views/queries.js';
+import { submitDiscussion } from '../discussions/service.js';
+import {
+  getAssignmentDraft,
+  getAssignments,
+  getDeadlines,
+  getLectures,
+  getReview,
+  getToday,
+  getUpcomingPreps,
+} from '../views/queries.js';
+
+/** Canvas credentials for the one write action exposed to the app: submit. */
+export interface CanvasAuth {
+  baseUrl: string;
+  token: string;
+}
 
 /** Parse with a schema; on failure send 400 and return undefined. */
 function parseOr400<S extends ZodTypeAny>(
@@ -20,8 +35,9 @@ function parseOr400<S extends ZodTypeAny>(
   return result.data;
 }
 
-/** Mount DB-backed read + notification routes. Requires a SqlClient. */
-export function registerApiRoutes(app: FastifyInstance, db: SqlClient): void {
+/** Mount DB-backed read + notification routes. Requires a SqlClient. The
+ * optional Canvas auth enables the submit route (posting an approved draft). */
+export function registerApiRoutes(app: FastifyInstance, db: SqlClient, canvasAuth?: CanvasAuth): void {
   app.post('/devices', async (req, reply) => {
     const body = parseOr400(
       z.object({ token: z.string().min(1), platform: z.enum(['ios', 'web']).optional() }),
@@ -60,6 +76,27 @@ export function registerApiRoutes(app: FastifyInstance, db: SqlClient): void {
   app.get('/preps', async () => getUpcomingPreps(db, { now: new Date().toISOString() }));
 
   app.get('/lectures', async () => getLectures(db));
+
+  app.get('/assignments', async () => getAssignments(db));
+
+  app.get('/assignments/:id/draft', async (req, reply) => {
+    const p = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
+    if (!p) return reply;
+    const draft = await getAssignmentDraft(db, p.id);
+    if (!draft) return reply.code(404).send({ error: 'not_found' });
+    return draft;
+  });
+
+  // Post an APPROVED draft to Canvas. The approval gate lives in submitDiscussion;
+  // this never posts an un-approved or edited-since-approval draft.
+  app.post('/assignments/:id/submit', async (req, reply) => {
+    const p = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
+    if (!p) return reply;
+    if (!canvasAuth) return reply.code(503).send({ error: 'submit_unavailable' });
+    const result = await submitDiscussion(db, canvasAuth, p.id);
+    if (result.status === 'refused') return reply.code(409).send(result);
+    return result;
+  });
 
   app.get('/assignments/:id/review-packet', async (req, reply) => {
     const params = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);

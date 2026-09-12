@@ -20,6 +20,8 @@ export interface ServerDeps {
   transcription?: TranscriptionProvider;
   /** Event bus for pipeline events (e.g. transcription.completed). */
   bus?: EventBus;
+  /** Canvas credentials; enables the submit route (posting an approved draft). */
+  canvasAuth?: { baseUrl: string; token: string };
 }
 
 const SERVICE_NAME = 'backend';
@@ -54,7 +56,7 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
 
   // DB-backed read + notification routes, mounted only when a client is provided.
   if (deps.db) {
-    registerApiRoutes(app, deps.db);
+    registerApiRoutes(app, deps.db, deps.canvasAuth);
     if (deps.storage) {
       registerRecordingRoutes(app, deps.db, deps.storage, {
         transcription: deps.transcription,
