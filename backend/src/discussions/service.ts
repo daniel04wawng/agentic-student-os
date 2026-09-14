@@ -47,12 +47,20 @@ function toText(html: string): string {
  * ... (Class Prep). Falls back to "?"-terminated sentences when unlabeled.
  */
 export function extractPrepQuestions(bodyText: string): string[] {
-  const labeled = [...bodyText.matchAll(/\bCP\d+\s*[:.)-]?\s*(.+?)(?=\s*\bCP\d+\b|\bEnd your post\b|$)/gis)].map((m) =>
-    m[1]!.replace(/\s+/g, ' ').trim(),
+  // Scope to after the "Class Prep Questions:" heading (with its colon, so the
+  // instruction phrase and the inline "(e.g., CP1, CP2)" mention aren't picked up).
+  const head = /class\s+prep\s+questions\s*:/i.exec(bodyText);
+  const scope = head ? bodyText.slice(head.index + head[0].length) : bodyText;
+  const labeled = [...scope.matchAll(/\bCP\d+\s*[:.)-]?\s*(.+?)(?=\s*[-\s]*\bCP\d+\b|\bEnd your post\b|$)/gis)].map((m) =>
+    m[1]!
+      .replace(/\s+/g, ' ')
+      .replace(/^[-\s]+|[-\s]+$/g, '')
+      .trim(),
   );
-  const items = labeled.length > 0 ? labeled : [...bodyText.matchAll(/([A-Z][^?]{10,240}\?)/g)].map((m) => m[1]!.trim());
+  const items =
+    labeled.length > 0 ? labeled : [...scope.matchAll(/([A-Z][^?]{10,240}\?)/g)].map((m) => m[1]!.trim());
   const seen = new Set<string>();
-  return items.filter((q) => q.length >= 6 && !seen.has(q) && (seen.add(q), true)).slice(0, 10);
+  return items.filter((q) => q.length >= 10 && !seen.has(q) && (seen.add(q), true)).slice(0, 10);
 }
 
 async function fetchDiscussions(auth: DiscussionAuth, canvasCourseId: number, fetchImpl = fetch): Promise<RawDiscussion[]> {
