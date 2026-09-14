@@ -34,9 +34,10 @@ export interface UpcomingClass {
 }
 
 /**
- * Sessions starting within the window. By default only those that don't already
- * have a prep; with `includePrepped`, all of them (used to regenerate preps
- * after the prep logic changes).
+ * Sessions starting within the window that need prep: those with no prep, those
+ * whose prep is STALE (the course profile - session plans / case schedule -
+ * changed after the prep was generated, e.g. the professor published the
+ * session or a discussion was ingested), or all of them with `includePrepped`.
  */
 export async function detectUpcomingClasses(
   db: SqlClient,
@@ -47,7 +48,9 @@ export async function detectUpcomingClasses(
             to_char(s.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS starts_at
      FROM sessions s
      LEFT JOIN class_preps p ON p.session_id = s.id
-     WHERE ($3::bool OR p.id IS NULL)
+     LEFT JOIN course_profiles cp ON cp.course_id = s.course_id
+     WHERE ($3::bool OR p.id IS NULL
+            OR (cp.updated_at IS NOT NULL AND p.generated_at < cp.updated_at))
        AND s.starts_at IS NOT NULL
        AND s.starts_at >= $1::timestamptz
        AND s.starts_at <= $1::timestamptz + ($2 || ' hours')::interval

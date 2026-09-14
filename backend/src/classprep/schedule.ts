@@ -69,7 +69,10 @@ export async function setCaseSchedule(
     `INSERT INTO course_profiles (course_id, profile)
      VALUES ($1, jsonb_build_object('case_schedule', $2::jsonb))
      ON CONFLICT (course_id) DO UPDATE
-       SET profile = course_profiles.profile || jsonb_build_object('case_schedule', $2::jsonb)`,
+       SET profile = course_profiles.profile || jsonb_build_object('case_schedule', $2::jsonb)
+       -- Only touch the row (and its updated_at) when the value actually changed,
+       -- so prep staleness keys off real changes, not every sync.
+       WHERE course_profiles.profile->'case_schedule' IS DISTINCT FROM $2::jsonb`,
     [courseId, JSON.stringify(dateToIndex)],
   );
 }
@@ -96,7 +99,9 @@ export async function setSessionPlans(
     `INSERT INTO course_profiles (course_id, profile)
      VALUES ($1, jsonb_build_object('session_plans', $2::jsonb))
      ON CONFLICT (course_id) DO UPDATE
-       SET profile = course_profiles.profile || jsonb_build_object('session_plans', $2::jsonb)`,
+       SET profile = course_profiles.profile || jsonb_build_object('session_plans', $2::jsonb)
+       -- Bump updated_at only on a real change (drives prep refresh, not churn).
+       WHERE course_profiles.profile->'session_plans' IS DISTINCT FROM $2::jsonb`,
     [courseId, JSON.stringify(dateToPlan)],
   );
 }
