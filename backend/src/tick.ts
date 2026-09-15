@@ -6,6 +6,8 @@ import { makeDbClient } from './db/pool.js';
 import { EventBus } from './events/bus.js';
 import { runLectureTick } from './lectures/process.js';
 import { draftPendingDiscussions } from './discussions/service.js';
+import { createPushSender } from './notifications/push.js';
+import { pushToAllDevices } from './notifications/service.js';
 import { createModelProvider } from './model/factory.js';
 import { ModelService } from './model/service.js';
 import { registerCanvasProjectors } from './projections/canvas.js';
@@ -49,6 +51,29 @@ async function main(): Promise<void> {
       includePrepped: regen,
     });
     console.log(`[tick:${cmd}]`, JSON.stringify({ prepared }));
+  } else if (cmd === 'push') {
+    // One evening digest push: "prep ready for tomorrow's N classes". Sent
+    // straight to devices (no in-app row), so it never piles up a list.
+    const sender = createPushSender();
+    const { rows } = await db.query<{ name: string }>(
+      `SELECT c.name FROM class_preps p
+       JOIN sessions s ON s.id = p.session_id
+       JOIN courses c ON c.id = p.course_id
+       WHERE to_char(s.starts_at AT TIME ZONE 'America/Toronto', 'YYYY-MM-DD')
+           = to_char((now() AT TIME ZONE 'America/Toronto') + interval '1 day', 'YYYY-MM-DD')
+       ORDER BY s.starts_at`,
+    );
+    if (rows.length > 0) {
+      const names = [...new Set(rows.map((r) => r.name.replace(/^\d+-/, '')))];
+      const body = names.length <= 3 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+      const devices = await pushToAllDevices(db, sender, {
+        title: `Prep ready for tomorrow (${rows.length})`,
+        body,
+      });
+      console.log('[tick:push]', JSON.stringify({ classes: rows.length, devices }));
+    } else {
+      console.log('[tick:push]', JSON.stringify({ classes: 0 }));
+    }
   } else if (cmd === 'drafts') {
     // Draft answers for upcoming discussion assignments (student reviews +
     // submits). Model-heavy, so it runs here rather than on the web endpoint.

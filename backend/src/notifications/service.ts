@@ -71,6 +71,31 @@ export interface DispatchResult {
 }
 
 /**
+ * Send one push message to every registered device (no in-app notification row,
+ * so a recurring digest never piles up an undismissable list). Best-effort:
+ * returns how many devices accepted it.
+ */
+export async function pushToAllDevices(
+  db: SqlClient,
+  sender: PushSender,
+  message: { title: string; body: string },
+): Promise<number> {
+  const devices = await db.query<{ token: string; platform: string }>(
+    `SELECT token, platform FROM devices`,
+  );
+  let delivered = 0;
+  for (const d of devices.rows) {
+    try {
+      await sender.send({ token: d.token, platform: d.platform }, message);
+      delivered += 1;
+    } catch {
+      // a dead token must not stop the rest
+    }
+  }
+  return delivered;
+}
+
+/**
  * Attempt push delivery for every not-yet-delivered notification. Delivery is
  * best-effort: on success the row is marked delivered; on failure it is marked
  * failed (attempts++/last_error) but PRESERVED so the in-app item is never lost

@@ -101,3 +101,9 @@ def lectures_tick():
 def drafts_tick():
     """Draft answers for upcoming discussion assignments for the student to review (every 2h)."""
     subprocess.run(["node", "backend/dist/tick.js", "drafts"], cwd="/app", check=False)
+
+
+@app.function(image=image, secrets=[SECRET], schedule=modal.Cron("0 0 * * *"), timeout=300)
+def push_tick():
+    """Evening APNs digest: 'prep ready for tomorrow's N classes' (~8pm Eastern)."""
+    subprocess.run(["node", "backend/dist/tick.js", "push"], cwd="/app", check=False)
