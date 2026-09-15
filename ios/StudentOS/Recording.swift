@@ -21,7 +21,9 @@ extension RecorderState {
         switch (state, event) {
         case (_, .reset):
             return .idle
-        case (.idle, .start):
+        // Start a recording from any non-recording state, so you can record
+        // again after a previous one stopped or failed.
+        case (.idle, .start), (.stopped, .start), (.failed, .start):
             return .recording
         case (.recording, .stop):
             return .stopped

@@ -46,6 +46,9 @@ final class RecordingLogicTests: XCTestCase {
         XCTAssertEqual(RecorderState.reduce(.recording, .stop), .stopped)
         XCTAssertEqual(RecorderState.reduce(.recording, .fail), .failed)
         XCTAssertEqual(RecorderState.reduce(.stopped, .reset), .idle)
+        // can start a NEW recording after a previous one stopped or failed
+        XCTAssertEqual(RecorderState.reduce(.stopped, .start), .recording)
+        XCTAssertEqual(RecorderState.reduce(.failed, .start), .recording)
         // invalid transition is ignored
         XCTAssertEqual(RecorderState.reduce(.idle, .stop), .idle)
     }
