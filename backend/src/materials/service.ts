@@ -39,12 +39,17 @@ export async function ingestFileBytes(
   if (input.minChars != null && text.trim().length < input.minChars) {
     return { materialId: null, chars: text.length, skipped: true };
   }
+  const source = input.source ?? 'canvas';
+  const sourceId = input.sourceId ?? null;
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO materials (course_id, session_id, kind, title, content_type, byte_size, text, source, source_id, source_url)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::provider,$9,$10)
      ON CONFLICT (source, source_id) WHERE source_id IS NOT NULL
      DO UPDATE SET text = excluded.text, title = excluded.title,
                    content_type = excluded.content_type, byte_size = excluded.byte_size
+       -- Only touch the row (and its updated_at) on a real content change, so it
+       -- can drive prep refresh without churning on every identical re-sync.
+       WHERE materials.text IS DISTINCT FROM excluded.text
      RETURNING id`,
     [
       input.courseId ?? null,
@@ -54,12 +59,21 @@ export async function ingestFileBytes(
       input.contentType ?? null,
       input.bytes.length,
       text,
-      input.source ?? 'canvas',
-      input.sourceId ?? null,
+      source,
+      sourceId,
       input.sourceUrl ?? null,
     ],
   );
-  return { materialId: rows[0]!.id, chars: text.length, skipped: false };
+  // No row when the conflict target existed and the text was unchanged: fetch it.
+  const materialId =
+    rows[0]?.id ??
+    (
+      await db.query<{ id: string }>(
+        `SELECT id FROM materials WHERE source = $1::provider AND source_id = $2`,
+        [source, sourceId],
+      )
+    ).rows[0]!.id;
+  return { materialId, chars: text.length, skipped: false };
 }
 
 /** Download a Canvas file, extract its text in memory, and store just the text. */

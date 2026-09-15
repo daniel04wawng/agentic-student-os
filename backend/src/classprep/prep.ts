@@ -49,8 +49,13 @@ export async function detectUpcomingClasses(
      FROM sessions s
      LEFT JOIN class_preps p ON p.session_id = s.id
      LEFT JOIN course_profiles cp ON cp.course_id = s.course_id
+     LEFT JOIN LATERAL (
+       SELECT max(m.updated_at) AS mt FROM materials m
+       WHERE m.course_id = s.course_id AND (m.session_id = s.id OR m.session_id IS NULL)
+     ) mat ON true
      WHERE ($3::bool OR p.id IS NULL
-            OR (cp.updated_at IS NOT NULL AND p.generated_at < cp.updated_at))
+            OR (cp.updated_at IS NOT NULL AND p.generated_at < cp.updated_at)
+            OR (mat.mt IS NOT NULL AND p.generated_at < mat.mt))
        AND s.starts_at IS NOT NULL
        AND s.starts_at >= $1::timestamptz
        AND s.starts_at <= $1::timestamptz + ($2 || ' hours')::interval
@@ -157,12 +162,15 @@ export async function gatherPrepContext(db: SqlClient, sessionId: string): Promi
           )
         ).rows[0]?.plan ?? null
       : null;
-  // Cases first (they carry the numbers to work), then other materials.
+  // This session's own assigned readings/case first (the actual material for the
+  // class), then course-wide context; cases/readings ahead of the syllabus, and
+  // shorter items first so a huge file never crowds out the assigned reading.
   const materialRows = courseId
     ? await db.query<{ title: string | null; kind: string; text: string }>(
         `SELECT title, kind, text FROM materials
          WHERE course_id = $1 AND (session_id = $2 OR session_id IS NULL) AND length(text) >= 20
-         ORDER BY CASE kind WHEN 'syllabus' THEN 0 WHEN 'case' THEN 1 ELSE 2 END,
+         ORDER BY (session_id IS NOT NULL) DESC,
+                  CASE kind WHEN 'case' THEN 0 WHEN 'reading' THEN 1 WHEN 'syllabus' THEN 2 ELSE 3 END,
                   length(text) ASC, updated_at DESC`,
         [courseId, sessionId],
       )

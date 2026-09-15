@@ -1,4 +1,5 @@
 import type { SqlClient } from '../db/client.js';
+import { ingestFileBytes } from '../materials/service.js';
 import { splitCoursepack } from '../materials/split.js';
 import { matchScheduleToCases, setCaseSchedule, setSessionPlans, type ScheduleEntry } from './schedule.js';
 
@@ -263,6 +264,11 @@ export async function syncIveySessionPlans(
     }
     await setSessionPlans(db, courseId, byDate);
 
+    // Pull the actual readings/primers the Session Summary attaches per session
+    // (e.g. GMM's macro primers) so prep is grounded in the reading, not just the
+    // questions. Best-effort; a file failure never breaks the sync.
+    await ingestSessionFiles(db, auth, canvasCourseId, courseId, html, fetchImpl);
+
     // If this course has a multi-case coursepack, also pin each date to its case.
     const cp = await db.query<{ text: string }>(
       `SELECT text FROM materials WHERE course_id = $1 AND kind = 'case'
@@ -281,4 +287,64 @@ export async function syncIveySessionPlans(
   } catch {
     return 0;
   }
+}
+
+/** Only PDFs and text files carry usable text (skip images and Office docs). */
+function fileIsReadable(contentType: string, name: string): boolean {
+  const ct = (contentType || '').toLowerCase();
+  return ct.includes('pdf') || ct.startsWith('text/') || /\.(pdf|txt|md|csv)$/i.test(name);
+}
+
+/**
+ * Download and ingest the files the Session Summary attaches to each published
+ * session, scoped to that session so prep uses the class's own reading. Skips
+ * images and Office docs; idempotent on the Canvas file id. Never throws.
+ */
+async function ingestSessionFiles(
+  db: SqlClient,
+  auth: CanvasAuth,
+  canvasCourseId: number,
+  courseId: string,
+  html: string,
+  fetchImpl: Fetch,
+): Promise<number> {
+  let ingested = 0;
+  for (const { date, seg } of sessionSegments(html)) {
+    const fileIds = [...new Set([...seg.matchAll(/files\/(\d+)/g)].map((m) => m[1]!))];
+    if (fileIds.length === 0) continue;
+    const s = await db.query<{ id: string }>(
+      `SELECT id FROM sessions WHERE course_id = $1
+         AND to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') = $2 LIMIT 1`,
+      [courseId, date],
+    );
+    const sessionId = s.rows[0]?.id ?? null;
+    for (const id of fileIds) {
+      try {
+        const meta = (await (
+          await fetchImpl(`${auth.baseUrl}/api/v1/courses/${canvasCourseId}/files/${id}`, {
+            headers: { Authorization: `Bearer ${auth.token}` },
+          })
+        ).json()) as { display_name?: string; content_type?: string; url?: string };
+        const name = meta.display_name ?? `file-${id}`;
+        if (!meta.url || !fileIsReadable(meta.content_type ?? '', name)) continue;
+        const bytes = Buffer.from(await (await fetchImpl(meta.url)).arrayBuffer());
+        const kind = /\b9B\d|\bW\d{4}\b|case/i.test(name) ? 'case' : 'reading';
+        const r = await ingestFileBytes(db, {
+          courseId,
+          sessionId,
+          kind,
+          title: name,
+          contentType: meta.content_type ?? null,
+          source: 'canvas',
+          sourceId: `canvas-file:${id}`,
+          bytes,
+          minChars: 100,
+        });
+        if (!r.skipped) ingested += 1;
+      } catch {
+        // a single unreadable/paywalled file must not stop the rest
+      }
+    }
+  }
+  return ingested;
 }
