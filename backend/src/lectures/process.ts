@@ -1,7 +1,6 @@
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
 import type { ModelService } from '../model/service.js';
-import { createNotification } from '../notifications/service.js';
 import { indexTranscript } from '../retrieval/index-service.js';
 import { buildTranscriptSummaries } from '../retrieval/summarize.js';
 import type { StorageProvider } from '../storage/provider.js';
@@ -50,15 +49,8 @@ export async function generateAndStoreNotes(
        SET content = excluded.content, status = 'ready', generated_at = now()`,
     [transcriptId, row.recording_id, row.session_id, row.course_id, JSON.stringify(notes)],
   );
-
-  await createNotification(db, {
-    kind: 'info',
-    title: 'Lecture notes ready',
-    body: notes.summary,
-    subjectType: 'transcript',
-    subjectId: transcriptId,
-    dedupKey: `lecturenotes:${transcriptId}`,
-  });
+  // No standing in-app notification: the Lectures tab surfaces the notes; a
+  // pile of undismissable "notes ready" items was just clutter.
 }
 
 /**

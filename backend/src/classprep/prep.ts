@@ -6,7 +6,6 @@ import type { EventBus } from '../events/bus.js';
 import { splitCoursepack } from '../materials/split.js';
 import type { ModelMessage } from '../model/provider.js';
 import type { ModelService } from '../model/service.js';
-import { createNotification } from '../notifications/service.js';
 
 export const CLASS_PREP_READY = 'class.prep.ready';
 
@@ -313,14 +312,9 @@ export async function prepareClass(
     [sessionId, courseId, JSON.stringify(prep)],
   );
 
-  await createNotification(db, {
-    kind: 'info',
-    title: 'Class prep ready',
-    body: prep.overview,
-    subjectType: 'session',
-    subjectId: sessionId,
-    dedupKey: `classprep:${sessionId}`,
-  });
+  // No in-app "prep ready" notification: the Prep tab already surfaces prep, and
+  // the phone gets a local reminder the evening before. Standing notifications
+  // just piled up in the app with no way to dismiss them.
 
   await bus.publish({
     name: CLASS_PREP_READY,

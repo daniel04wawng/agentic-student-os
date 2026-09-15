@@ -121,7 +121,7 @@ describe('prepareClass with a case', () => {
 });
 
 describe('prepareClass', () => {
-  it('creates a prep artifact + notification + event, idempotently', async () => {
+  it('creates a prep artifact + event, idempotently (no standing notification)', async () => {
     const sessionId = await seedSession('2026-09-07T15:00:00Z');
     await prepareClass(db, bus, model, sessionId);
     await prepareClass(db, bus, model, sessionId); // idempotent
@@ -133,7 +133,9 @@ describe('prepareClass', () => {
       [CLASS_PREP_READY],
     );
     expect(preps.rows[0]!.n).toBe(1);
-    expect(notes.rows[0]!.n).toBe(1); // deduped by dedup_key
+    // Prep no longer creates a standing in-app notification (it piled up with no
+    // way to dismiss); the Prep tab + the phone reminder cover it.
+    expect(notes.rows[0]!.n).toBe(0);
     expect(events.rows[0]!.n).toBe(1); // deduped by idempotency key
   });
 });
