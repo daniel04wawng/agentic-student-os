@@ -10,7 +10,7 @@ fire-and-forget on the web endpoint, where a scale-down could cut them off.
 Deploy:
     modal secret create student-os-backend-env \
         DATABASE_URL=... CANVAS_BASE_URL=... CANVAS_API_TOKEN=... \
-        DEEPGRAM_API_KEY=... COMPOSIO_API_KEY=... COMPOSIO_USER_ID=daniel \
+        DEEPGRAM_API_KEY=... COMPOSIO_API_KEY=... COMPOSIO_USER_ID=<your-composio-user-id> \
         MODEL_PROVIDER=modal MODEL_NAME=google/gemma-4-26B-A4B-it \
         MODAL_MODEL_URL=... MODAL_MODEL_TOKEN=... \
         BACKEND_HOST=0.0.0.0 BACKEND_PORT=3000 INNGEST_DEV=0 AUTO_SUBMIT=0
