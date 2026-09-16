@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isApproved } from '../approval/approval.js';
+import { invalidateStaleApprovals, isApproved } from '../approval/approval.js';
 import { setSessionPlans } from '../classprep/schedule.js';
 import type { SqlClient } from '../db/client.js';
 import type { ModelMessage } from '../model/provider.js';
@@ -188,6 +188,47 @@ export async function draftDiscussion(
   const artifactId = artifact.rows[0]!.id;
   await db.query(`UPDATE assignments SET status = 'review_ready' WHERE id = $1`, [assignmentId]);
   return { artifactId };
+}
+
+/**
+ * Edit the current draft's text (the student revising before approving/posting).
+ * Advances the artifact's remote_version so any prior approval of the OLD text is
+ * invalidated - you cannot silently post text that was never re-reviewed. Returns
+ * the new version and the (now always false) approval state. Idempotent-safe:
+ * every save bumps the version, so the approval gate always reflects this text.
+ */
+export async function updateDiscussionDraft(
+  db: SqlClient,
+  assignmentId: string,
+  newText: string,
+): Promise<{ artifactId: string; version: string; approved: boolean } | null> {
+  const found = await db.query<{ id: string; remote_version: string | null }>(
+    `SELECT ar.id, ar.remote_version
+     FROM assignments a
+     JOIN deliverables d ON d.assignment_id = a.id
+     JOIN artifacts ar ON ar.deliverable_id = d.id
+     WHERE a.id = $1 AND ar.kind = 'text'
+     ORDER BY ar.version DESC LIMIT 1`,
+    [assignmentId],
+  );
+  const cur = found.rows[0];
+  if (!cur) return null; // nothing drafted yet - nothing to edit
+
+  const nextVersion = String((Number(cur.remote_version) || 1) + 1);
+  await db.query(
+    `UPDATE artifacts
+       SET metadata = metadata || jsonb_build_object('draft_text', $2::text),
+           remote_version = $3,
+           version = version + 1,
+           status = 'review_ready'
+     WHERE id = $1`,
+    [cur.id, newText, nextVersion],
+  );
+  // The version moved, so any active approval no longer matches -> invalidate it.
+  await invalidateStaleApprovals(db, cur.id);
+  // A submitted assignment that gets re-edited returns to review (needs re-approval).
+  await db.query(`UPDATE assignments SET status = 'review_ready' WHERE id = $1 AND status <> 'submitted'`, [assignmentId]);
+  return { artifactId: cur.id, version: nextVersion, approved: false };
 }
 
 /**

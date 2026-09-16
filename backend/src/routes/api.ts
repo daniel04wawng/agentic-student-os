@@ -4,7 +4,9 @@ import type { SqlClient } from '../db/client.js';
 import { approveArtifact, isApproved } from '../approval/approval.js';
 import { dismissNotification, registerDevice } from '../notifications/service.js';
 import { getReviewPacket } from '../review/packet.js';
-import { submitDiscussion } from '../discussions/service.js';
+import { submitDiscussion, updateDiscussionDraft } from '../discussions/service.js';
+import { answerQuestion } from '../chat/service.js';
+import type { ModelService } from '../model/service.js';
 import {
   getAssignmentDraft,
   getAssignments,
@@ -13,6 +15,7 @@ import {
   getReview,
   getToday,
   getUpcomingPreps,
+  listSessions,
 } from '../views/queries.js';
 
 /** Canvas credentials for the one write action exposed to the app: submit. */
@@ -37,7 +40,12 @@ function parseOr400<S extends ZodTypeAny>(
 
 /** Mount DB-backed read + notification routes. Requires a SqlClient. The
  * optional Canvas auth enables the submit route (posting an approved draft). */
-export function registerApiRoutes(app: FastifyInstance, db: SqlClient, canvasAuth?: CanvasAuth): void {
+export function registerApiRoutes(
+  app: FastifyInstance,
+  db: SqlClient,
+  canvasAuth?: CanvasAuth,
+  model?: ModelService,
+): void {
   app.post('/devices', async (req, reply) => {
     const body = parseOr400(
       z.object({ token: z.string().min(1), platform: z.enum(['ios', 'web']).optional() }),
@@ -77,6 +85,22 @@ export function registerApiRoutes(app: FastifyInstance, db: SqlClient, canvasAut
 
   app.get('/lectures', async () => getLectures(db));
 
+  // Sessions around now, for the "which class is this lecture" override picker.
+  app.get('/sessions', async () => listSessions(db));
+
+  // Study chat: ask a question, get an answer grounded in your own materials +
+  // lectures. Requires a model; 503 when the backend has none configured.
+  app.post('/chat', async (req, reply) => {
+    const body = parseOr400(
+      z.object({ question: z.string().min(1).max(2000), course_id: z.string().uuid().optional() }),
+      req.body,
+      reply,
+    );
+    if (!body) return reply;
+    if (!model) return reply.code(503).send({ error: 'chat_unavailable' });
+    return answerQuestion(db, model, { question: body.question, courseId: body.course_id });
+  });
+
   app.get('/assignments', async () => getAssignments(db));
 
   app.get('/assignments/:id/draft', async (req, reply) => {
@@ -85,6 +109,19 @@ export function registerApiRoutes(app: FastifyInstance, db: SqlClient, canvasAut
     const draft = await getAssignmentDraft(db, p.id);
     if (!draft) return reply.code(404).send({ error: 'not_found' });
     return draft;
+  });
+
+  // Edit the drafted answer before approving/submitting. Advancing the text
+  // invalidates any prior approval (submit then re-requires a fresh approval).
+  app.put('/assignments/:id/draft', async (req, reply) => {
+    const p = parseOr400(z.object({ id: z.string().uuid() }), req.params, reply);
+    if (!p) return reply;
+    const body = parseOr400(z.object({ text: z.string() }), req.body, reply);
+    if (!body) return reply;
+    const updated = await updateDiscussionDraft(db, p.id, body.text);
+    if (!updated) return reply.code(404).send({ error: 'not_found' });
+    const draft = await getAssignmentDraft(db, p.id);
+    return draft ?? updated;
   });
 
   // Post an APPROVED draft to Canvas. The approval gate lives in submitDiscussion;

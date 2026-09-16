@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
-import { getRecording, registerRecording, storeAudio } from '../recordings/service.js';
+import { getRecording, registerRecording, setRecordingSession, storeAudio } from '../recordings/service.js';
 import type { StorageProvider } from '../storage/provider.js';
 import type { TranscriptionProvider } from '../transcription/provider.js';
 import { requestTranscription, runTranscription } from '../transcription/service.js';
@@ -55,6 +55,18 @@ export function registerRecordingRoutes(
       durationMs: parsed.data.duration_ms,
     });
     return { id: rec.id, status: rec.status, upload_path: `/recordings/${rec.id}/audio` };
+  });
+
+  // Re-point a recording to the correct class session (manual override when the
+  // automatic time-match got it wrong). session_id null unlinks it.
+  app.put('/recordings/:id/session', async (req, reply) => {
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return reply.code(400).send({ error: 'invalid_request' });
+    const body = z.object({ session_id: z.string().uuid().nullable() }).safeParse(req.body);
+    if (!body.success) return reply.code(400).send({ error: 'invalid_request', issues: body.error.issues });
+    const ok = await setRecordingSession(db, params.data.id, body.data.session_id);
+    if (!ok) return reply.code(404).send({ error: 'not_found' });
+    return { ok: true };
   });
 
   // Lecture recordings are large; allow up to 500 MB (default Fastify cap is 1 MB).

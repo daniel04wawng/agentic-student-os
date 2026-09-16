@@ -177,6 +177,10 @@ export interface LectureContent {
 
 export interface LectureView {
   transcript_id: string;
+  /** The source recording, for re-pointing the lecture to a different session. */
+  recording_id: string;
+  /** The class session this lecture is matched to (null if unmatched). */
+  session_id: string | null;
   course_name: string | null;
   title: string | null;
   /** Recording capture time (ISO Z), or null if unknown. */
@@ -194,12 +198,14 @@ export async function getLectures(
 ): Promise<LectureView[]> {
   const { rows } = await db.query<{
     transcript_id: string;
+    recording_id: string;
+    session_id: string | null;
     course_name: string | null;
     title: string | null;
     recorded_at: unknown;
     content: LectureContent;
   }>(
-    `SELECT n.transcript_id, c.name AS course_name,
+    `SELECT n.transcript_id, n.recording_id, n.session_id, c.name AS course_name,
             COALESCE(s.title, r.title) AS title,
             to_char(r.captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recorded_at,
             n.content
@@ -214,11 +220,40 @@ export async function getLectures(
   );
   return rows.map((r) => ({
     transcript_id: r.transcript_id,
+    recording_id: r.recording_id,
+    session_id: r.session_id,
     course_name: r.course_name,
     title: r.title,
     recorded_at: r.recorded_at ? String(r.recorded_at) : null,
     content: r.content,
   }));
+}
+
+export interface SessionPickItem {
+  id: string;
+  title: string | null;
+  course_name: string | null;
+  starts_at: string | null;
+}
+
+/**
+ * Sessions around now (recent + upcoming), for the "which class is this lecture"
+ * picker. Ordered by start time so the current week is easy to find.
+ */
+export async function listSessions(db: SqlClient, q: { limit?: number } = {}): Promise<SessionPickItem[]> {
+  const { rows } = await db.query<SessionPickItem>(
+    `SELECT s.id, COALESCE(s.title, c.name) AS title, c.name AS course_name,
+            to_char(s.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS starts_at
+     FROM sessions s
+     LEFT JOIN courses c ON c.id = s.course_id
+     WHERE s.starts_at IS NOT NULL
+       AND s.starts_at >= now() - interval '30 days'
+       AND s.starts_at <= now() + interval '30 days'
+     ORDER BY s.starts_at DESC
+     LIMIT $1`,
+    [q.limit ?? 100],
+  );
+  return rows;
 }
 
 export interface AssignmentListItem {

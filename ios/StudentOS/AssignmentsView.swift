@@ -72,34 +72,53 @@ struct AssignmentsView: View {
     }
 }
 
-/// Read the drafted answer, approve it, then submit to Canvas.
+/// Read the drafted answer, EDIT it if you want, approve it, then submit to
+/// Canvas. Editing advances the version, so an edited draft must be re-approved
+/// before it can be submitted (you never post text you didn't approve).
 struct AssignmentDetailView: View {
     let assignment: AssignmentItem
     @State private var draft: AssignmentDraft?
+    @State private var editedText = ""
     @State private var loading = true
     @State private var working = false
     @State private var message: String?
     private let client = APIClient()
 
+    /// Unsaved local edits differ from the saved draft.
+    private var dirty: Bool { editedText != (draft?.draftText ?? "") }
+    private var isSubmitted: Bool { draft?.status == "submitted" }
+
     var body: some View {
         Group {
             if loading {
                 ProgressView()
-            } else if let draft, let text = draft.draftText, !text.isEmpty {
+            } else if let draft, (draft.draftText?.isEmpty == false) || isSubmitted {
                 List {
                     if let prompt = draft.prompt, !prompt.isEmpty {
                         Section("Prompt") { Text(prompt).font(.caption).foregroundStyle(.secondary) }
                     }
-                    Section("Drafted answer (review before submitting)") { Text(text) }
                     Section {
-                        if draft.status == "submitted" {
+                        TextEditor(text: $editedText)
+                            .frame(minHeight: 260)
+                            .font(.body)
+                            .disabled(working || isSubmitted)
+                    } header: {
+                        Text("Drafted answer — edit before submitting")
+                    } footer: {
+                        if dirty { Text("Unsaved edits. Save, then approve to enable submit.").foregroundStyle(.orange) }
+                    }
+                    Section {
+                        if isSubmitted {
                             Label("Submitted to Canvas", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
                         } else {
+                            if dirty {
+                                Button("Save changes") { Task { await save() } }.disabled(working)
+                            }
                             Button(draft.approved ? "Approved ✓" : "Approve this draft") { Task { await approve() } }
-                                .disabled(draft.approved || working)
+                                .disabled(draft.approved || working || dirty)
                             Button("Submit to Canvas") { Task { await submit() } }
-                                .disabled(!draft.approved || working)
-                                .foregroundStyle(draft.approved ? .green : .secondary)
+                                .disabled(!draft.approved || working || dirty)
+                                .foregroundStyle(draft.approved && !dirty ? .green : .secondary)
                         }
                         if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
                     }
@@ -117,6 +136,16 @@ struct AssignmentDetailView: View {
         loading = true
         defer { loading = false }
         draft = try? await client.assignmentDraft(id: assignment.id)
+        editedText = draft?.draftText ?? ""
+    }
+
+    private func save() async {
+        working = true; defer { working = false }
+        do {
+            draft = try await client.updateDraft(assignmentId: assignment.id, text: editedText)
+            editedText = draft?.draftText ?? editedText
+            message = "Saved. Approve the edited draft to submit."
+        } catch { message = "Save failed." }
     }
 
     private func approve() async {

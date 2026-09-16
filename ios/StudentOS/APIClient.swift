@@ -69,12 +69,43 @@ struct APIClient {
         try await send(request("lectures"))
     }
 
+    func sessions() async throws -> [SessionPick] {
+        try await send(request("sessions"))
+    }
+
+    /// Re-point a recorded lecture to the correct class session (or nil to unlink).
+    func setLectureSession(recordingId: String, sessionId: String?) async throws {
+        let value: Any = sessionId.map { $0 as Any } ?? NSNull()
+        let body = try JSONSerialization.data(withJSONObject: ["session_id": value])
+        let req = request("recordings/\(recordingId)/session", method: "PUT", body: body)
+        let (_, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    /// Ask the study assistant a question, grounded in your materials + lectures.
+    func chat(question: String, courseId: String? = nil) async throws -> ChatAnswer {
+        var payload: [String: Any] = ["question": question]
+        if let courseId { payload["course_id"] = courseId }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        return try await send(request("chat", method: "POST", body: body))
+    }
+
     func assignments() async throws -> [AssignmentItem] {
         try await send(request("assignments"))
     }
 
     func assignmentDraft(id: String) async throws -> AssignmentDraft {
         try await send(request("assignments/\(id)/draft"))
+    }
+
+    /// Save an edited draft. Advances the version server-side, so any prior
+    /// approval is invalidated and the draft must be re-approved before submit.
+    @discardableResult
+    func updateDraft(assignmentId: String, text: String) async throws -> AssignmentDraft {
+        let body = try JSONSerialization.data(withJSONObject: ["text": text])
+        return try await send(request("assignments/\(assignmentId)/draft", method: "PUT", body: body))
     }
 
     /// Approve the current draft (ties approval to the exact artifact version).

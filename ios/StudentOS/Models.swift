@@ -89,11 +89,31 @@ struct LectureContent: Codable, Hashable {
 
 struct LectureItem: Codable, Identifiable, Hashable {
     let transcriptId: String
+    let recordingId: String
+    let sessionId: String?
     let courseName: String?
     let title: String?
     let recordedAt: String?
     let content: LectureContent
     var id: String { transcriptId }
+}
+
+/// A class session, for the "which class is this lecture" picker.
+struct SessionPick: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String?
+    let courseName: String?
+    let startsAt: String?
+}
+
+struct ChatSource: Codable, Hashable {
+    let type: String
+    let title: String
+}
+
+struct ChatAnswer: Codable, Hashable {
+    let answer: String
+    let sources: [ChatSource]
 }
 
 struct AssignmentItem: Codable, Identifiable, Hashable {

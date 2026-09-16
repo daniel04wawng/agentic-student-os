@@ -54,6 +54,10 @@ struct LecturesView: View {
                             NavigationLink(value: lecture) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(lecture.courseName ?? lecture.title ?? "Lecture").font(.headline)
+                                    if lecture.sessionId == nil {
+                                        Label("Not matched to a class — tap to set", systemImage: "questionmark.circle")
+                                            .font(.caption).foregroundStyle(.orange)
+                                    }
                                     if let when = lecture.recordedAt.flatMap(Self.when) {
                                         Text(when).font(.caption).foregroundStyle(.secondary)
                                     }
@@ -67,7 +71,9 @@ struct LecturesView: View {
                 }
             }
             .navigationTitle("Lectures")
-            .navigationDestination(for: LectureItem.self) { LectureDetailView(lecture: $0) }
+            .navigationDestination(for: LectureItem.self) { lecture in
+                LectureDetailView(lecture: lecture, onChange: { await load() })
+            }
             .task { await load() }
             .refreshable { await load() }
         }
@@ -147,12 +153,48 @@ struct LecturesView: View {
     }
 }
 
-/// Full AI notes for one recorded lecture.
+/// Full AI notes for one recorded lecture, plus a control to correct which class
+/// it belongs to when the automatic time-match got it wrong.
 struct LectureDetailView: View {
     let lecture: LectureItem
+    var onChange: (() async -> Void)? = nil
+    @State private var sessions: [SessionPick] = []
+    @State private var currentCourse: String?
+    @State private var matched: Bool
+    @State private var working = false
+    @State private var message: String?
+    private let client = APIClient()
+
+    init(lecture: LectureItem, onChange: (() async -> Void)? = nil) {
+        self.lecture = lecture
+        self.onChange = onChange
+        _currentCourse = State(initialValue: lecture.courseName)
+        _matched = State(initialValue: lecture.sessionId != nil)
+    }
 
     var body: some View {
         List {
+            Section("Class") {
+                Menu {
+                    ForEach(sessions) { s in
+                        Button(sessionLabel(s)) { Task { await repoint(to: s.id, name: s.courseName ?? s.title) } }
+                    }
+                    if matched {
+                        Divider()
+                        Button("Unmatch", role: .destructive) { Task { await repoint(to: nil, name: nil) } }
+                    }
+                } label: {
+                    HStack {
+                        Label(currentCourse ?? "Not matched — pick a class",
+                              systemImage: matched ? "checkmark.circle" : "questionmark.circle")
+                            .foregroundStyle(matched ? Color.primary : Color.orange)
+                        Spacer()
+                        if working { ProgressView() } else { Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                .disabled(working)
+                if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            }
             Section {
                 Text(lecture.content.summary)
             } header: {
@@ -179,7 +221,24 @@ struct LectureDetailView: View {
                 }
             }
         }
-        .navigationTitle(lecture.courseName ?? "Lecture")
+        .navigationTitle(currentCourse ?? "Lecture")
         .navigationBarTitleDisplayMode(.inline)
+        .task { sessions = (try? await client.sessions()) ?? [] }
+    }
+
+    private func sessionLabel(_ s: SessionPick) -> String {
+        let date = s.startsAt.flatMap(LecturesView.when).map { " · \($0)" } ?? ""
+        return (s.courseName ?? s.title ?? "Class") + date
+    }
+
+    private func repoint(to sessionId: String?, name: String?) async {
+        working = true; defer { working = false }
+        do {
+            try await client.setLectureSession(recordingId: lecture.recordingId, sessionId: sessionId)
+            currentCourse = name
+            matched = sessionId != nil
+            message = sessionId == nil ? "Unmatched." : "Matched to \(name ?? "class")."
+            await onChange?()
+        } catch { message = "Couldn't update the class." }
     }
 }

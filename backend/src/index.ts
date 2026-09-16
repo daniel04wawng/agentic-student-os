@@ -47,6 +47,9 @@ async function main(): Promise<void> {
     if (config.CANVAS_BASE_URL && config.CANVAS_API_TOKEN) {
       deps.canvasAuth = { baseUrl: config.CANVAS_BASE_URL.replace(/\/$/, ''), token: config.CANVAS_API_TOKEN };
     }
+    // Model enables the interactive study-chat route. This is a synchronous
+    // request path, so on Modal it can incur the Gemma cold start on first use.
+    deps.model = new ModelService(createModelProvider(config));
 
     // In-process schedulers (local/always-on hosting). Disabled with
     // PREP_SCHEDULER=0 when the loops run as external Modal scheduled functions

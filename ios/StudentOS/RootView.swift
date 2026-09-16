@@ -15,6 +15,8 @@ struct RootView: View {
                 .tabItem { Label("Lectures", systemImage: "mic") }
             AssignmentsView()
                 .tabItem { Label("Work", systemImage: "tray.full") }
+            ChatView()
+                .tabItem { Label("Chat", systemImage: "bubble.left") }
         }
     }
 }
