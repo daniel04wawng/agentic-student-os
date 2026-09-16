@@ -119,7 +119,7 @@ describe('build wave HTTP routes', () => {
     // Approve the original draft.
     const approve = await app.inject({ method: 'POST', url: `/artifacts/${artifactId}/approve` });
     expect(approve.statusCode).toBe(200);
-    let draft = await app.inject({ method: 'GET', url: `/assignments/${assignmentId}/draft` });
+    const draft = await app.inject({ method: 'GET', url: `/assignments/${assignmentId}/draft` });
     expect(draft.json().approved).toBe(true);
 
     // Edit the text: response reflects the new text and drops approval.
