@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { SqlClient } from '../db/client.js';
 import type { EventBus } from '../events/bus.js';
+import { generateAndStoreNotes } from '../lectures/process.js';
+import type { ModelService } from '../model/service.js';
 import { getRecording, registerRecording, setRecordingSession, storeAudio } from '../recordings/service.js';
 import type { StorageProvider } from '../storage/provider.js';
 import type { TranscriptionProvider } from '../transcription/provider.js';
@@ -10,6 +12,9 @@ import { requestTranscription, runTranscription } from '../transcription/service
 export interface RecordingRouteDeps {
   transcription?: TranscriptionProvider;
   bus?: EventBus;
+  /** When present, notes are generated right after transcription (near-instant,
+   * Granola-style) instead of waiting for the scheduled lecture tick. */
+  model?: ModelService;
 }
 
 const AUDIO_CONTENT_TYPES = [
@@ -87,13 +92,18 @@ export function registerRecordingRoutes(
     // requestTranscription is idempotent; a failed run leaves the audio intact
     // and marks the transcript retryable.
     if (deps.transcription && deps.bus) {
-      const { transcription, bus } = deps;
+      const { transcription, bus, model } = deps;
       void (async () => {
         try {
           const t = await requestTranscription(db, params.data.id);
           await runTranscription(db, storage, transcription, bus, t.id);
+          // Granola-style: generate the notes right after transcription so they
+          // appear on their own within seconds. Best-effort - the scheduled
+          // lecture tick is the reliable backstop if the container scales down
+          // mid-generation.
+          if (model) await generateAndStoreNotes(db, model, t.id);
         } catch (err) {
-          app.log.error({ err, recording: params.data.id }, 'transcription failed');
+          app.log.error({ err, recording: params.data.id }, 'transcription/notes failed');
         }
       })();
     }

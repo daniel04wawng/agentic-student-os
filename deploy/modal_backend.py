@@ -89,11 +89,15 @@ def canvas_tick():
     image=image,
     secrets=[SECRET],
     volumes={"/data/recordings": audio_volume},  # reads uploaded audio to transcribe
-    schedule=modal.Period(minutes=15),
+    schedule=modal.Period(minutes=3),
     timeout=1800,
 )
 def lectures_tick():
-    """Transcribe stored recordings and turn transcripts into AI notes (every 15 min)."""
+    """Transcribe stored recordings and turn transcripts into AI notes.
+
+    Runs every 3 min as the reliable backstop. The upload route already fires
+    transcription + note generation in-process for near-instant (Granola-style)
+    notes; this catches anything the scale-to-zero web container dropped."""
     subprocess.run(["node", "backend/dist/tick.js", "lectures"], cwd="/app", check=False)
 
 

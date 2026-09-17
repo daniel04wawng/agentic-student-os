@@ -64,6 +64,7 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
       registerRecordingRoutes(app, deps.db, deps.storage, {
         transcription: deps.transcription,
         bus: deps.bus,
+        model: deps.model,
       });
     }
   }

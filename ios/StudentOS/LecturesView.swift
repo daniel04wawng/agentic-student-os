@@ -82,20 +82,25 @@ struct LecturesView: View {
     /// Big record/stop control plus an upload action for anything still local.
     private var recordControls: some View {
         VStack(spacing: 12) {
-            Button(action: recorder.toggle) {
+            Button(action: toggleRecord) {
                 Label(isRecording ? "Stop" : "Record a lecture",
                       systemImage: isRecording ? "stop.circle.fill" : "mic.circle.fill")
                     .font(.title2)
                     .foregroundStyle(isRecording ? .red : .accentColor)
                     .frame(maxWidth: .infinity)
             }
-            if !store.pending().isEmpty {
+            if isRecording {
+                Text("Recording… tap Stop and it uploads on its own.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if uploading {
+                Label("Uploading + writing notes…", systemImage: "arrow.up.circle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            // Fallback only: retry anything that failed to upload automatically.
+            if !store.pending().isEmpty && !uploading {
                 Button(action: uploadPending) {
-                    if uploading { ProgressView() } else {
-                        Text("Upload \(store.pending().count) pending")
-                    }
+                    Text("Retry \(store.pending().count) pending upload\(store.pending().count == 1 ? "" : "s")")
                 }
-                .disabled(uploading)
             }
         }
         .padding(.vertical, 4)
@@ -124,12 +129,31 @@ struct LecturesView: View {
         }
     }
 
+    /// Start recording, or stop-and-auto-upload. Stopping uploads immediately
+    /// (no manual tap) and leaves the record button ready right away, so you can
+    /// record lectures back to back.
+    private func toggleRecord() {
+        if isRecording {
+            recorder.stop()
+            uploadPending()
+        } else {
+            recorder.start()
+        }
+    }
+
     private func uploadPending() {
         uploading = true
         Task {
             defer { uploading = false }
             await RecordingUploader(service: client, store: store).uploadPending()
             await load()
+            // Notes generate server-side shortly after the upload; refresh on a
+            // backoff so they surface on their own (covering a model cold start,
+            // ~2 min) without a manual pull-to-refresh.
+            for delay in [6, 15, 30, 45, 60] {
+                try? await Task.sleep(for: .seconds(delay))
+                await load()
+            }
         }
     }
 
