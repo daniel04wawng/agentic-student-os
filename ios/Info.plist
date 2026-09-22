@@ -4,6 +4,10 @@
 <dict>
 	<key>BackendBaseURL</key>
 	<string>https://daniel04wawng--student-os-backend-serve.modal.run</string>
+	<key>SupabaseURL</key>
+	<string>https://rpdytvcgmuqupabvqgbs.supabase.co</string>
+	<key>SupabaseAnonKey</key>
+	<string>REPLACE_WITH_SUPABASE_ANON_KEY</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>

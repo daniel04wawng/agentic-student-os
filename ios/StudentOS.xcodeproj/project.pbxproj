@@ -291,6 +291,7 @@
 				DEVELOPMENT_TEAM = 59YBMDW5C9;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				CODE_SIGN_ENTITLEMENTS = StudentOS.entitlements;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.danielwang.studentos;
@@ -310,6 +311,7 @@
 				DEVELOPMENT_TEAM = 59YBMDW5C9;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
+				CODE_SIGN_ENTITLEMENTS = StudentOS.entitlements;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				MARKETING_VERSION = 0.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.danielwang.studentos;

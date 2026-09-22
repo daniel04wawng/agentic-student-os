@@ -28,6 +28,11 @@ struct APIClient {
         req.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: Self.traceHeader)
         // Bypass ngrok-free's browser interstitial so tunnelled API calls return JSON.
         req.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
+        // Attach the signed-in user's Supabase access token when present. The
+        // backend requires it once auth is enabled; before then it's ignored.
+        if let token = AuthTokenBox.shared.token {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
