@@ -57,13 +57,18 @@ image = (
 )
 
 SECRET = modal.Secret.from_name("student-os-backend-env")
+# Auth secrets (AUTH_JWT_SECRET, CRED_ENC_KEY) live in a separate secret so the
+# main one never has to be recreated. Present on serve -> the API enforces auth
+# and mounts the /auth sign-in routes; present on the ticks -> they can decrypt
+# per-user credentials in a later phase.
+AUTH_SECRET = modal.Secret.from_name("student-os-auth-env")
 # Persistent storage for uploaded lecture audio (survives container restarts).
 audio_volume = modal.Volume.from_name("student-os-audio", create_if_missing=True)
 
 
 @app.function(
     image=image,
-    secrets=[SECRET],
+    secrets=[SECRET, AUTH_SECRET],
     volumes={"/data/recordings": audio_volume},
     timeout=600,
 )
@@ -73,13 +78,13 @@ def serve():
     subprocess.Popen(["node", "backend/dist/index.js"], cwd="/app")
 
 
-@app.function(image=image, secrets=[SECRET], schedule=modal.Period(minutes=30), timeout=1800)
+@app.function(image=image, secrets=[SECRET, AUTH_SECRET], schedule=modal.Period(minutes=30), timeout=1800)
 def prep_tick():
     """Prepare upcoming classes ahead of time (every 30 min)."""
     subprocess.run(["node", "backend/dist/tick.js", "prep"], cwd="/app", check=False)
 
 
-@app.function(image=image, secrets=[SECRET], schedule=modal.Period(hours=6), timeout=1800)
+@app.function(image=image, secrets=[SECRET, AUTH_SECRET], schedule=modal.Period(hours=6), timeout=1800)
 def canvas_tick():
     """Refresh Canvas courses / deadlines / materials (every 6h)."""
     subprocess.run(["node", "backend/dist/tick.js", "sync"], cwd="/app", check=False)
@@ -87,7 +92,7 @@ def canvas_tick():
 
 @app.function(
     image=image,
-    secrets=[SECRET],
+    secrets=[SECRET, AUTH_SECRET],
     volumes={"/data/recordings": audio_volume},  # reads uploaded audio to transcribe
     schedule=modal.Period(minutes=3),
     timeout=1800,
@@ -101,13 +106,13 @@ def lectures_tick():
     subprocess.run(["node", "backend/dist/tick.js", "lectures"], cwd="/app", check=False)
 
 
-@app.function(image=image, secrets=[SECRET], schedule=modal.Period(hours=2), timeout=1800)
+@app.function(image=image, secrets=[SECRET, AUTH_SECRET], schedule=modal.Period(hours=2), timeout=1800)
 def drafts_tick():
     """Draft answers for upcoming discussion assignments for the student to review (every 2h)."""
     subprocess.run(["node", "backend/dist/tick.js", "drafts"], cwd="/app", check=False)
 
 
-@app.function(image=image, secrets=[SECRET], schedule=modal.Cron("0 0 * * *"), timeout=300)
+@app.function(image=image, secrets=[SECRET, AUTH_SECRET], schedule=modal.Cron("0 0 * * *"), timeout=300)
 def push_tick():
     """Evening APNs digest: 'prep ready for tomorrow's N classes' (~8pm Eastern)."""
     subprocess.run(["node", "backend/dist/tick.js", "push"], cwd="/app", check=False)
