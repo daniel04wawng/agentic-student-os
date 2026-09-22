@@ -50,6 +50,8 @@ async function main(): Promise<void> {
     // Model enables the interactive study-chat route. This is a synchronous
     // request path, so on Modal it can incur the Gemma cold start on first use.
     deps.model = new ModelService(createModelProvider(config));
+    // When set, the API requires a valid Supabase bearer token (multi-user mode).
+    deps.supabaseJwtSecret = config.SUPABASE_JWT_SECRET;
 
     // In-process schedulers (local/always-on hosting). Disabled with
     // PREP_SCHEDULER=0 when the loops run as external Modal scheduled functions
