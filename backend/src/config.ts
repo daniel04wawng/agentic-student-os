@@ -44,12 +44,13 @@ const ConfigSchema = z.object({
   // account for COMPOSIO_USER_ID.
   COMPOSIO_API_KEY: z.string().min(1).optional(),
   COMPOSIO_USER_ID: z.string().min(1).default('default'),
-  // Supabase Auth. When SUPABASE_JWT_SECRET is present the API requires a valid
-  // Supabase bearer token (multi-user mode); absent, the API stays open (legacy
+  // Self-rolled auth. Sign in with Apple is verified against Apple's public keys
+  // (APPLE_CLIENT_ID = the app bundle id / token audience); we then mint our own
+  // session JWTs signed with AUTH_JWT_SECRET. When the secret is present the API
+  // requires a valid bearer (multi-user mode); absent, the API stays open (legacy
   // single-user), so the backend can deploy before the app ships sign-in.
-  SUPABASE_URL: z.string().url().optional(),
-  SUPABASE_JWT_SECRET: z.string().min(1).optional(),
-  SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  AUTH_JWT_SECRET: z.string().min(1).optional(),
+  APPLE_CLIENT_ID: z.string().min(1).default('com.danielwang.studentos'),
   // 32-byte hex key for encrypting per-user credentials (Canvas token, etc.) at
   // rest with AES-256-GCM. Required once per-user credential storage is used.
   CRED_ENC_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, '32-byte hex (64 hex chars)').optional(),

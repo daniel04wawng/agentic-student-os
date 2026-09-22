@@ -12,9 +12,9 @@ struct StudentOSApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                // Skip the gate until auth is configured, so this build can ship
-                // before the Supabase/Apple setup without locking anyone out.
-                if !AppConfig.authConfigured || auth.isSignedIn {
+                // Skip the gate until auth is turned on (AuthRequired), so this
+                // build can ship before the backend/Apple setup without lock-out.
+                if !AppConfig.authRequired || auth.isSignedIn {
                     RootView()
                 } else {
                     LoginView()
