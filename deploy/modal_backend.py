@@ -68,7 +68,10 @@ audio_volume = modal.Volume.from_name("student-os-audio", create_if_missing=True
 
 @app.function(
     image=image,
-    secrets=[SECRET, AUTH_SECRET],
+    # AUTH_SECRET intentionally OFF here until a working signed-in build ships, so
+    # the API stays open (legacy) and the current app keeps working. Re-add
+    # AUTH_SECRET to enforce auth + mount /auth once build 10 sign-in is verified.
+    secrets=[SECRET],
     volumes={"/data/recordings": audio_volume},
     timeout=600,
 )
