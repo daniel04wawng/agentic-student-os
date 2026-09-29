@@ -9,13 +9,167 @@ interface Source {
   type: string;
   title: string;
 }
+interface Labeled extends Source {
+  label: string; // P1, M2, L1 ...
+}
 interface Msg {
   mine: boolean;
   text: string;
-  sources?: Source[];
+  sources?: Labeled[];
 }
 
 const SOURCE_ICON: Record<string, string> = { primer: '📘', lecture: '🎙️', material: '📄' };
+const TYPE_PREFIX: Record<string, string> = { primer: 'P', material: 'M', lecture: 'L' };
+
+// Rebuild the [P1]/[M2]/[L1] labels the backend used: it appends primers, then
+// materials, then lectures, numbering each type from 1 in that order. So the
+// nth source of a type is <PREFIX><n>. This lets us match inline [labels] in the
+// answer text to their source.
+function labelSources(sources?: Source[]): Labeled[] {
+  if (!sources) return [];
+  const counts: Record<string, number> = {};
+  return sources.map((s) => {
+    const prefix = TYPE_PREFIX[s.type] ?? 'S';
+    counts[prefix] = (counts[prefix] ?? 0) + 1;
+    return { ...s, title: (s.title ?? '').trim(), label: `${prefix}${counts[prefix]}` };
+  });
+}
+
+const CITE_RE = /\[([PML]\d+)\]/g;
+
+function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }) {
+  const byLabel = new Map(sources.map((s) => [s.label, s]));
+  const [active, setActive] = useState<string | null>(null);
+  const refFor = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Only show references that are actually cited in the text (keeps it tidy);
+  // fall back to all sources if the model didn't inline any labels.
+  const citedLabels = Array.from(new Set([...text.matchAll(CITE_RE)].map((m) => m[1]!)));
+  const refs = (citedLabels.length ? citedLabels.map((l) => byLabel.get(l)).filter(Boolean) : sources) as Labeled[];
+
+  function jumpTo(label: string) {
+    setActive(label);
+    refFor.current[label]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.setTimeout(() => setActive((a) => (a === label ? null : a)), 1600);
+  }
+
+  // Split the answer into text + clickable citation chips.
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  CITE_RE.lastIndex = 0;
+  let k = 0;
+  while ((m = CITE_RE.exec(text))) {
+    const label = m[1]!;
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (byLabel.has(label)) {
+      parts.push(
+        <button
+          key={`c${k++}`}
+          onClick={() => jumpTo(label)}
+          title={byLabel.get(label)!.title}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            verticalAlign: 'baseline',
+            border: 'none',
+            cursor: 'pointer',
+            background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+            color: 'var(--accent)',
+            fontSize: 11,
+            fontWeight: 700,
+            lineHeight: 1,
+            padding: '2px 5px',
+            borderRadius: 6,
+            margin: '0 1px',
+            transform: 'translateY(-1px)',
+          }}
+        >
+          {label}
+        </button>,
+      );
+    } else {
+      parts.push(m[0]);
+    }
+    last = m.index + m[0].length;
+    k++;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+
+  return (
+    <div
+      style={{
+        maxWidth: '82%',
+        padding: '9px 14px',
+        borderRadius: 'var(--radius-bubble)',
+        borderBottomLeftRadius: 6,
+        background: 'var(--bubble-them)',
+        color: 'var(--bubble-them-text)',
+        fontSize: 16,
+        lineHeight: 1.45,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}
+    >
+      {parts}
+      {refs.length > 0 && (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 8,
+            borderTop: '0.5px solid var(--separator)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          {refs.map((s) => (
+            <div
+              key={s.label}
+              ref={(el) => {
+                refFor.current[s.label] = el;
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                fontSize: 12.5,
+                color: 'var(--label-secondary)',
+                background:
+                  active === s.label
+                    ? 'color-mix(in srgb, var(--accent) 18%, transparent)'
+                    : 'transparent',
+                borderRadius: 8,
+                padding: '3px 6px',
+                transition: 'background 0.3s ease',
+              }}
+            >
+              <span
+                style={{
+                  flex: '0 0 auto',
+                  fontWeight: 700,
+                  color: 'var(--accent)',
+                  fontSize: 11,
+                }}
+              >
+                {s.label}
+              </span>
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {SOURCE_ICON[s.type] ?? '📄'} {s.title}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -26,13 +180,11 @@ export default function ChatPage() {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Kick the backend awake as soon as the page opens, so it is warming while the
-  // user reads and types. Scale-to-zero + a large model means a cold first
-  // answer is slow; this overlaps the wait.
+  // user reads and types (scale-to-zero + a large model = slow cold first answer).
   useEffect(() => {
     fetch(`${BACKEND}/health`, { method: 'GET' }).catch(() => {});
   }, []);
 
-  // Elapsed-time counter drives the honest "still working" copy while sending.
   useEffect(() => {
     if (!sending) {
       setElapsed(0);
@@ -52,7 +204,7 @@ export default function ChatPage() {
     if (!question || sending) return;
     setInput('');
     if (taRef.current) taRef.current.style.height = 'auto';
-    setMessages((m) => [...m, { mine: true, text: question }]);
+    setMessages((mm) => [...mm, { mine: true, text: question }]);
     setSending(true);
     scrollToEnd();
     try {
@@ -62,13 +214,13 @@ export default function ChatPage() {
         body: JSON.stringify({ question }),
       });
       const data = await res.json();
-      setMessages((m) => [
-        ...m,
-        { mine: false, text: data.answer || 'No answer.', sources: data.sources },
+      setMessages((mm) => [
+        ...mm,
+        { mine: false, text: data.answer || 'No answer.', sources: labelSources(data.sources) },
       ]);
     } catch {
-      setMessages((m) => [
-        ...m,
+      setMessages((mm) => [
+        ...mm,
         { mine: false, text: "Couldn't reach the assistant. Try again in a moment." },
       ]);
     } finally {
@@ -89,7 +241,7 @@ export default function ChatPage() {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100dvh - 57px)', // minus nav bar
+        height: 'calc(100dvh - 57px)',
         background: 'var(--bg)',
       }}
     >
@@ -119,63 +271,35 @@ export default function ChatPage() {
             </div>
           )}
 
-          {messages.map((m, i) => (
+          {messages.map((msg, i) => (
             <div
               key={i}
               style={{
                 display: 'flex',
-                justifyContent: m.mine ? 'flex-end' : 'flex-start',
+                justifyContent: msg.mine ? 'flex-end' : 'flex-start',
                 margin: '4px 0',
               }}
             >
-              <div
-                style={{
-                  maxWidth: '82%',
-                  padding: '9px 14px',
-                  borderRadius: 'var(--radius-bubble)',
-                  background: m.mine ? 'var(--accent)' : 'var(--bubble-them)',
-                  color: m.mine ? '#fff' : 'var(--bubble-them-text)',
-                  fontSize: 16,
-                  lineHeight: 1.4,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  borderBottomRightRadius: m.mine ? 6 : 'var(--radius-bubble)',
-                  borderBottomLeftRadius: m.mine ? 'var(--radius-bubble)' : 6,
-                }}
-              >
-                {m.text}
-                {m.sources && m.sources.length > 0 && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      paddingTop: 8,
-                      borderTop: '0.5px solid var(--separator)',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 6,
-                    }}
-                  >
-                    {m.sources.map((s, j) => (
-                      <span
-                        key={j}
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--label-secondary)',
-                          background: 'color-mix(in srgb, var(--label-secondary) 12%, transparent)',
-                          borderRadius: 8,
-                          padding: '3px 8px',
-                          maxWidth: '100%',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {SOURCE_ICON[s.type] ?? '📄'} {s.title}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {msg.mine ? (
+                <div
+                  style={{
+                    maxWidth: '82%',
+                    padding: '9px 14px',
+                    borderRadius: 'var(--radius-bubble)',
+                    borderBottomRightRadius: 6,
+                    background: 'var(--accent)',
+                    color: '#fff',
+                    fontSize: 16,
+                    lineHeight: 1.4,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {msg.text}
+                </div>
+              ) : (
+                <AssistantBubble text={msg.text} sources={msg.sources ?? []} />
+              )}
             </div>
           ))}
 
