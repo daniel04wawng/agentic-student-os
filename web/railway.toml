@@ -1,0 +1,8 @@
+# Railway config for the web app. Overrides any dashboard build/start commands
+# so this always builds the Next.js app (not the backend workspace).
+[build]
+builder = "railpack"
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npm run start"
