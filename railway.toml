@@ -1,0 +1,13 @@
+# Railway deploys the Next.js web app (web/), NOT the backend (backend runs on
+# Modal). This config-as-code overrides the service's stale dashboard build/start
+# commands. Railway reads it from the repo root, which is the deploy context.
+#
+# The web app is a standalone Next.js project (not an npm workspace), so we build
+# it in place and run its self-contained standalone server, which bundles its own
+# node_modules and is immune to runtime dependency pruning.
+[build]
+builder = "railpack"
+buildCommand = "cd web && npm ci && npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public"
+
+[deploy]
+startCommand = "cd web/.next/standalone && HOSTNAME=0.0.0.0 node server.js"
