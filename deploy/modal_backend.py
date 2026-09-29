@@ -41,10 +41,14 @@ image = (
             "**/node_modules",
             "**/.git",
             "**/dist",
+            "**/.next",
+            "**/.turbo",
             "**/.venv",
             "**/DerivedData",
             "**/*.xcarchive",
             "ios/**",
+            "web/**",
+            ".railway/**",
             "**/.env",
             "**/__pycache__",
         ],
@@ -62,6 +66,8 @@ SECRET = modal.Secret.from_name("student-os-backend-env")
 # and mounts the /auth sign-in routes; present on the ticks -> they can decrypt
 # per-user credentials in a later phase.
 AUTH_SECRET = modal.Secret.from_name("student-os-auth-env")
+# EMBED_URL + EMBED_TOKEN for semantic retrieval (the bge-small endpoint).
+EMBED_SECRET = modal.Secret.from_name("student-os-embed-client-env")
 # Persistent storage for uploaded lecture audio (survives container restarts).
 audio_volume = modal.Volume.from_name("student-os-audio", create_if_missing=True)
 
@@ -71,7 +77,7 @@ audio_volume = modal.Volume.from_name("student-os-audio", create_if_missing=True
     # AUTH_SECRET intentionally OFF here until a working signed-in build ships, so
     # the API stays open (legacy) and the current app keeps working. Re-add
     # AUTH_SECRET to enforce auth + mount /auth once build 10 sign-in is verified.
-    secrets=[SECRET],
+    secrets=[SECRET, EMBED_SECRET],
     volumes={"/data/recordings": audio_volume},
     timeout=600,
 )

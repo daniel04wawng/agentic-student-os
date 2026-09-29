@@ -22,6 +22,34 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Real embedder backed by the Modal embedding endpoint (bge-small-en-v1.5).
+ * Queries are embedded in "query" mode (the endpoint adds bge's retrieval
+ * instruction prefix); stored chunk embeddings were computed in "passage" mode.
+ */
+export class HttpEmbedder implements Embedder {
+  constructor(
+    private readonly url: string,
+    private readonly token: string | undefined,
+    private readonly mode: 'query' | 'passage' = 'query',
+    private readonly fetchImpl: FetchLike = globalThis.fetch as FetchLike,
+  ) {}
+
+  async embed(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const res = await this.fetchImpl(this.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts, mode: this.mode, token: this.token }),
+    });
+    if (!res.ok) throw new Error(`embed endpoint ${res.status}`);
+    const data = (await res.json()) as { vectors?: number[][] };
+    return data.vectors ?? [];
+  }
+}
+
 export const FAKE_EMBED_DIM = 256;
 
 /**

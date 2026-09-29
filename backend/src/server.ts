@@ -8,6 +8,7 @@ import type { EventBus } from './events/bus.js';
 import { registerApiRoutes } from './routes/api.js';
 import { registerRecordingRoutes } from './routes/recordings.js';
 import type { ModelService } from './model/service.js';
+import type { Embedder } from './retrieval/embed.js';
 import type { StorageProvider } from './storage/provider.js';
 import type { TranscriptionProvider } from './transcription/provider.js';
 import { traceMixin } from './logger.js';
@@ -28,6 +29,8 @@ export interface ServerDeps {
   canvasAuth?: { baseUrl: string; token: string };
   /** Model service; enables the interactive chat route (/chat). */
   model?: ModelService;
+  /** Embedder; when present, chat retrieval ranks passages semantically. */
+  embedder?: Embedder;
   /** Secret for signing/verifying our own session tokens. When present, every
    * route except /health and /auth/* requires a valid bearer (request.userId is
    * set from its `sub`) and the /auth sign-in routes are mounted. Absent, the API
@@ -87,7 +90,7 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
 
   // DB-backed read + notification routes, mounted only when a client is provided.
   if (deps.db) {
-    registerApiRoutes(app, deps.db, deps.canvasAuth, deps.model);
+    registerApiRoutes(app, deps.db, deps.canvasAuth, deps.model, deps.embedder);
     // Sign-in routes, mounted only when auth is configured.
     if (deps.authJwtSecret) {
       registerAuthRoutes(app, deps.db, {

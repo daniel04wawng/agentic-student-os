@@ -5,6 +5,7 @@ import { makeDbClient } from './db/pool.js';
 import { EventBus } from './events/bus.js';
 import { createModelProvider } from './model/factory.js';
 import { ModelService } from './model/service.js';
+import { HttpEmbedder } from './retrieval/embed.js';
 import { registerCanvasProjectors } from './projections/canvas.js';
 import { createTranscriptionProvider } from './transcription/factory.js';
 import { startCanvasSync } from './scheduler/canvas-sync.js';
@@ -50,6 +51,10 @@ async function main(): Promise<void> {
     // Model enables the interactive study-chat route. This is a synchronous
     // request path, so on Modal it can incur the Gemma cold start on first use.
     deps.model = new ModelService(createModelProvider(config));
+    // Embedder enables semantic retrieval in chat/prep (bge-small on Modal).
+    if (config.EMBED_URL) {
+      deps.embedder = new HttpEmbedder(config.EMBED_URL, config.EMBED_TOKEN, 'query');
+    }
     // When set, the API requires a valid session bearer token (multi-user mode)
     // and mounts the Sign in with Apple routes.
     deps.authJwtSecret = config.AUTH_JWT_SECRET;

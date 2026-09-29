@@ -1,7 +1,8 @@
 import type { SqlClient } from '../db/client.js';
 import type { ModelMessage } from '../model/provider.js';
 import type { ModelService } from '../model/service.js';
-import { fullTextSearch } from '../retrieval/search.js';
+import type { Embedder } from '../retrieval/embed.js';
+import { fullTextSearch, semanticResourceSearch } from '../retrieval/search.js';
 
 /**
  * Study chat. The student asks a free-form question and gets an answer grounded
@@ -15,6 +16,8 @@ import { fullTextSearch } from '../retrieval/search.js';
 export interface ChatSource {
   type: 'primer' | 'material' | 'lecture';
   title: string;
+  /** The actual passage used, so the client can show what was cited. */
+  snippet?: string;
 }
 
 export interface ChatAnswer {
@@ -27,6 +30,7 @@ const PER_SNIPPET_CHARS = 2000;
 const TOTAL_CONTEXT_CHARS = 12000;
 
 interface ResourceHit {
+  id: string;
   source_title: string | null;
   section: string | null;
   text: string;
@@ -42,7 +46,7 @@ async function searchResourceChunks(
   // OR the query's terms (plainto ANDs them, which fails on full questions),
   // ranked by relevance so the best-matching chunks still come first.
   const { rows } = await db.query<ResourceHit>(
-    `SELECT source_title, section, left(text, $4) AS text
+    `SELECT id, source_title, section, left(text, $4) AS text
      FROM resource_chunks,
           to_tsquery('english', replace(plainto_tsquery('english', $1)::text, ' & ', ' | ')) q
      WHERE ($2::uuid IS NULL OR course_id = $2::uuid) AND tsv @@ q
@@ -51,6 +55,41 @@ async function searchResourceChunks(
     [query, courseId ?? null, limit, PER_SNIPPET_CHARS],
   );
   return rows;
+}
+
+/**
+ * Combined primer retrieval: semantic (meaning-based, when an embedder is
+ * configured) with keyword search as a backstop. Semantic hits come first
+ * because they match the question's intent, not just its words; keyword hits
+ * fill in anything semantic missed. Deduped by chunk id.
+ */
+async function retrievePrimers(
+  db: SqlClient,
+  embedder: Embedder | undefined,
+  query: string,
+  courseId: string | undefined,
+  limit: number,
+): Promise<ResourceHit[]> {
+  const [semantic, keyword] = await Promise.all([
+    embedder
+      ? semanticResourceSearch(db, embedder, query, { courseId, limit }).catch(() => [])
+      : Promise.resolve([]),
+    searchResourceChunks(db, query, courseId, limit),
+  ]);
+
+  const out: ResourceHit[] = [];
+  const seen = new Set<string>();
+  for (const s of semantic) {
+    if (seen.has(s.id)) continue;
+    seen.add(s.id);
+    out.push({ id: s.id, source_title: s.source_title, section: s.section, text: s.text });
+  }
+  for (const k of keyword) {
+    if (seen.has(k.id)) continue;
+    seen.add(k.id);
+    out.push(k);
+  }
+  return out.slice(0, limit);
 }
 
 interface MaterialHit {
@@ -82,10 +121,14 @@ async function searchMaterials(
 const CHAT_SYSTEM = [
   "You are the student's study assistant. Answer the question using the CONTEXT below, which is",
   'drawn from their course primers/textbook and (when available) their own materials and lecture',
-  'notes. Prefer the context; cite what you used by its bracketed label (e.g. [P1], [M2], [L1]). If',
-  'the context does not contain the answer, say so plainly, then you may answer briefly from general',
-  'knowledge and flag that it is not from the course material. Be concise and specific. Do not use',
-  'em dashes.',
+  'notes.',
+  'Be specific and concrete: lead with the direct answer, then name the exact concepts, definitions,',
+  'conditions, formulas, or figures from the context that support it. Quote key terms and numbers',
+  'verbatim rather than paraphrasing vaguely. Cite each claim with the bracketed label of the source',
+  'it came from (e.g. [P1], [M2], [L1]); put the label right after the sentence it supports.',
+  'Do not pad with generic background the student did not ask for. If the context does not contain the',
+  'answer, say so plainly in one line, then you may answer briefly from general knowledge and flag',
+  'that it is not from the course material. Do not use em dashes.',
 ].join(' ');
 
 /**
@@ -97,13 +140,13 @@ const CHAT_SYSTEM = [
 export async function answerQuestion(
   db: SqlClient,
   model: ModelService,
-  opts: { question: string; courseId?: string },
+  opts: { question: string; courseId?: string; embedder?: Embedder },
 ): Promise<ChatAnswer> {
   const question = opts.question.trim();
   if (!question) return { answer: '', sources: [] };
 
   const [primers, materials, chunks] = await Promise.all([
-    searchResourceChunks(db, question, opts.courseId, 5),
+    retrievePrimers(db, opts.embedder, question, opts.courseId, 6),
     searchMaterials(db, question, opts.courseId, 3),
     fullTextSearch(db, question, { courseId: opts.courseId, limit: 3 }),
   ]);
@@ -117,7 +160,9 @@ export async function answerQuestion(
     const snippet = body.slice(0, Math.min(PER_SNIPPET_CHARS, TOTAL_CONTEXT_CHARS - used)).trim();
     if (!snippet) return;
     blocks.push(`[${label}] ${title}\n${snippet}`);
-    sources.push({ type, title });
+    // Cap the snippet shown to the client so citations can reveal the passage
+    // without shipping a whole chunk.
+    sources.push({ type, title, snippet: snippet.slice(0, 500) });
     used += snippet.length;
   };
 
@@ -132,6 +177,6 @@ export async function answerQuestion(
     { role: 'system', content: CHAT_SYSTEM },
     { role: 'user', content: `CONTEXT:\n${context}\n\nQUESTION: ${question}` },
   ];
-  const res = await model.generate({ messages, maxTokens: 800 });
+  const res = await model.generate({ messages, maxTokens: 1000 });
   return { answer: res.text.trim(), sources };
 }

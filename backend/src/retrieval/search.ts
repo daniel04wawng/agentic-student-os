@@ -95,3 +95,52 @@ export async function semanticSearch(
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
+
+export interface ResourceSemanticHit {
+  id: string;
+  source_title: string | null;
+  section: string | null;
+  text: string;
+  score: number;
+}
+
+/**
+ * Semantic search over course primer/textbook chunks (resource_chunks). Embeds
+ * the query and ranks embedded chunks by cosine similarity in app code (chunk
+ * embeddings are precomputed jsonb arrays). Optionally course-scoped.
+ */
+export async function semanticResourceSearch(
+  db: SqlClient,
+  embedder: Embedder,
+  query: string,
+  opts: { courseId?: string; limit?: number } = {},
+): Promise<ResourceSemanticHit[]> {
+  const limit = opts.limit ?? 8;
+  const [queryVec] = await embedder.embed([query]);
+  if (!queryVec) return [];
+
+  const { rows } = await db.query<{
+    id: string;
+    source_title: string | null;
+    section: string | null;
+    text: string;
+    embedding: number[];
+  }>(
+    `SELECT id, source_title, section, text, embedding
+     FROM resource_chunks
+     WHERE embedding IS NOT NULL
+       AND ($1::uuid IS NULL OR course_id = $1::uuid)`,
+    [opts.courseId ?? null],
+  );
+
+  return rows
+    .map((r) => ({
+      id: r.id,
+      source_title: r.source_title,
+      section: r.section,
+      text: r.text,
+      score: cosineSimilarity(queryVec, r.embedding),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}

@@ -7,6 +7,7 @@ import { getReviewPacket } from '../review/packet.js';
 import { submitDiscussion, updateDiscussionDraft } from '../discussions/service.js';
 import { answerQuestion } from '../chat/service.js';
 import type { ModelService } from '../model/service.js';
+import type { Embedder } from '../retrieval/embed.js';
 import {
   getAssignmentDraft,
   getAssignments,
@@ -45,6 +46,7 @@ export function registerApiRoutes(
   db: SqlClient,
   canvasAuth?: CanvasAuth,
   model?: ModelService,
+  embedder?: Embedder,
 ): void {
   app.post('/devices', async (req, reply) => {
     const body = parseOr400(
@@ -98,7 +100,7 @@ export function registerApiRoutes(
     );
     if (!body) return reply;
     if (!model) return reply.code(503).send({ error: 'chat_unavailable' });
-    return answerQuestion(db, model, { question: body.question, courseId: body.course_id });
+    return answerQuestion(db, model, { question: body.question, courseId: body.course_id, embedder });
   });
 
   app.get('/assignments', async () => getAssignments(db));

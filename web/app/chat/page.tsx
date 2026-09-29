@@ -8,6 +8,7 @@ const BACKEND =
 interface Source {
   type: string;
   title: string;
+  snippet?: string;
 }
 interface Labeled extends Source {
   label: string; // P1, M2, L1 ...
@@ -31,7 +32,12 @@ function labelSources(sources?: Source[]): Labeled[] {
   return sources.map((s) => {
     const prefix = TYPE_PREFIX[s.type] ?? 'S';
     counts[prefix] = (counts[prefix] ?? 0) + 1;
-    return { ...s, title: (s.title ?? '').trim(), label: `${prefix}${counts[prefix]}` };
+    return {
+      type: s.type,
+      title: (s.title ?? '').trim(),
+      snippet: s.snippet,
+      label: `${prefix}${counts[prefix]}`,
+    };
   });
 }
 
@@ -40,6 +46,7 @@ const CITE_RE = /\[([PML]\d+)\]/g;
 function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }) {
   const byLabel = new Map(sources.map((s) => [s.label, s]));
   const [active, setActive] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const refFor = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Only show references that are actually cited in the text (keeps it tidy);
@@ -49,6 +56,7 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
 
   function jumpTo(label: string) {
     setActive(label);
+    setExpanded((e) => (e === label ? e : label)); // reveal the passage
     refFor.current[label]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     window.setTimeout(() => setActive((a) => (a === label ? null : a)), 1600);
   }
@@ -123,48 +131,72 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
             gap: 4,
           }}
         >
-          {refs.map((s) => (
-            <div
-              key={s.label}
-              ref={(el) => {
-                refFor.current[s.label] = el;
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                fontSize: 12.5,
-                color: 'var(--label-secondary)',
-                background:
-                  active === s.label
-                    ? 'color-mix(in srgb, var(--accent) 18%, transparent)'
-                    : 'transparent',
-                borderRadius: 8,
-                padding: '3px 6px',
-                transition: 'background 0.3s ease',
-              }}
-            >
-              <span
+          {refs.map((s) => {
+            const isOpen = expanded === s.label;
+            return (
+              <div
+                key={s.label}
+                ref={(el) => {
+                  refFor.current[s.label] = el;
+                }}
                 style={{
-                  flex: '0 0 auto',
-                  fontWeight: 700,
-                  color: 'var(--accent)',
-                  fontSize: 11,
+                  background:
+                    active === s.label
+                      ? 'color-mix(in srgb, var(--accent) 18%, transparent)'
+                      : 'transparent',
+                  borderRadius: 8,
+                  transition: 'background 0.3s ease',
                 }}
               >
-                {s.label}
-              </span>
-              <span
-                style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {SOURCE_ICON[s.type] ?? '📄'} {s.title}
-              </span>
-            </div>
-          ))}
+                <button
+                  onClick={() => setExpanded((e) => (e === s.label ? null : s.label))}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                    fontSize: 12.5,
+                    color: 'var(--label-secondary)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: s.snippet ? 'pointer' : 'default',
+                    padding: '3px 6px',
+                    textAlign: 'left',
+                    font: 'inherit',
+                  }}
+                >
+                  <span style={{ flex: '0 0 auto', fontWeight: 700, color: 'var(--accent)', fontSize: 11 }}>
+                    {s.label}
+                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {SOURCE_ICON[s.type] ?? '📄'} {s.title}
+                  </span>
+                  {s.snippet && (
+                    <span style={{ flex: '0 0 auto', color: 'var(--label-tertiary)', fontSize: 11 }}>
+                      {isOpen ? '▲' : '▼'}
+                    </span>
+                  )}
+                </button>
+                {isOpen && s.snippet && (
+                  <div
+                    style={{
+                      margin: '2px 6px 6px',
+                      padding: '8px 10px',
+                      borderLeft: '2px solid var(--accent)',
+                      background: 'color-mix(in srgb, var(--label-secondary) 8%, transparent)',
+                      borderRadius: 6,
+                      fontSize: 12.5,
+                      lineHeight: 1.5,
+                      color: 'var(--label)',
+                    }}
+                  >
+                    {s.snippet}
+                    {s.snippet.length >= 490 ? '…' : ''}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
