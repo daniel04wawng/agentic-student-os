@@ -43,7 +43,9 @@ function labelSources(sources?: Source[]): Labeled[] {
   });
 }
 
-const CITE_RE = /\[([PML]\d+)\]/g;
+// Matches a citation bracket that may hold several labels, e.g. [P4] or [P4, M1].
+const CITE_RE = /\[([PML]\d+(?:\s*,\s*[PML]\d+)*)\]/g;
+const LABEL_RE = /[PML]\d+/g;
 
 function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }) {
   const byLabel = new Map(sources.map((s) => [s.label, s]));
@@ -53,7 +55,9 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
 
   // Only show references that are actually cited in the text (keeps it tidy);
   // fall back to all sources if the model didn't inline any labels.
-  const citedLabels = Array.from(new Set([...text.matchAll(CITE_RE)].map((m) => m[1]!)));
+  const citedLabels = Array.from(
+    new Set([...text.matchAll(CITE_RE)].flatMap((m) => m[1]!.match(LABEL_RE) ?? [])),
+  );
   const refs = (citedLabels.length ? citedLabels.map((l) => byLabel.get(l)).filter(Boolean) : sources) as Labeled[];
 
   function jumpTo(label: string) {
@@ -89,10 +93,10 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
     </button>
   );
 
-  // Inline markdown: **bold** and [P#] citation chips.
+  // Inline markdown: **bold** and [P#] (or [P#, M#]) citation chips.
   const renderInline = (str: string, base: string): React.ReactNode[] => {
     const nodes: React.ReactNode[] = [];
-    const re = /(\*\*([^*]+?)\*\*)|(\[([PML]\d+)\])/g;
+    const re = /(\*\*([^*]+?)\*\*)|(\[([PML]\d+(?:\s*,\s*[PML]\d+)*)\])/g;
     let last = 0;
     let m: RegExpExecArray | null;
     let k = 0;
@@ -101,8 +105,15 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
       if (m[1] !== undefined) {
         nodes.push(<strong key={`${base}b${k}`}>{m[2]}</strong>);
       } else {
-        const label = m[4]!;
-        nodes.push(byLabel.has(label) ? chip(label, `${base}c${k}`) : m[3]);
+        const labels = (m[4]!.match(LABEL_RE) ?? []).filter((l) => byLabel.has(l));
+        if (labels.length) {
+          labels.forEach((label, li) => {
+            if (li > 0) nodes.push(' ');
+            nodes.push(chip(label, `${base}c${k}_${li}`));
+          });
+        } else {
+          nodes.push(m[3]);
+        }
       }
       last = m.index + m[0].length;
       k += 1;
