@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { ClerkProvider, Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 import './globals.css';
 
@@ -15,28 +16,27 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 20px',
-            borderBottom: '1px solid #e5e7eb',
-          }}
-        >
-          <strong style={{ fontSize: 18 }}>🎓 Student OS</strong>
+        <nav className="nav">
+          <Link href="/" className="nav__brand">
+            <span aria-hidden>🎓</span>
+            <span>Student OS</span>
+          </Link>
           {clerkEnabled && (
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div className="nav__actions">
               <Show when="signed-out">
-                <SignInButton />
-                <SignUpButton />
+                <SignInButton>
+                  <button className="btn btn--plain">Sign in</button>
+                </SignInButton>
+                <SignUpButton>
+                  <button className="btn btn--tinted">Sign up</button>
+                </SignUpButton>
               </Show>
               <Show when="signed-in">
                 <UserButton />
               </Show>
             </div>
           )}
-        </header>
+        </nav>
         {children}
       </body>
     </html>
