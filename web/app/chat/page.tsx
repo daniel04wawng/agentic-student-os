@@ -1,6 +1,5 @@
 'use client';
 
-import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 
 const BACKEND =
@@ -17,7 +16,6 @@ interface Msg {
 }
 
 export default function ChatPage() {
-  const { getToken } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -30,13 +28,9 @@ export default function ChatPage() {
     setMessages((m) => [...m, { mine: true, text: question }]);
     setSending(true);
     try {
-      const token = await getToken().catch(() => null);
       const res = await fetch(`${BACKEND}/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question }),
       });
       const data = await res.json();

@@ -1,4 +1,3 @@
-import { Show, SignInButton } from '@clerk/nextjs';
 import Link from 'next/link';
 
 export default function Home() {
@@ -17,40 +16,21 @@ export default function Home() {
         Ask anything about your class. Answers come straight from your course primers and
         readings, with citations.
       </p>
-      <Show when="signed-out">
-        <SignInButton mode="modal">
-          <button
-            style={{
-              fontSize: 16,
-              padding: '12px 28px',
-              borderRadius: 10,
-              border: 'none',
-              background: '#111827',
-              color: 'white',
-              cursor: 'pointer',
-            }}
-          >
-            Sign in to start
-          </button>
-        </SignInButton>
-      </Show>
-      <Show when="signed-in">
-        <Link href="/chat">
-          <button
-            style={{
-              fontSize: 16,
-              padding: '12px 28px',
-              borderRadius: 10,
-              border: 'none',
-              background: '#111827',
-              color: 'white',
-              cursor: 'pointer',
-            }}
-          >
-            Open chat
-          </button>
-        </Link>
-      </Show>
+      <Link href="/chat">
+        <button
+          style={{
+            fontSize: 16,
+            padding: '12px 28px',
+            borderRadius: 10,
+            border: 'none',
+            background: '#111827',
+            color: 'white',
+            cursor: 'pointer',
+          }}
+        >
+          Open chat
+        </button>
+      </Link>
     </main>
   );
 }
