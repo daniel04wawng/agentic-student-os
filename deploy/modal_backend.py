@@ -111,7 +111,10 @@ def lectures_tick():
 
     Runs every 3 min as the reliable backstop. The upload route already fires
     transcription + note generation in-process for near-instant (Granola-style)
-    notes; this catches anything the scale-to-zero web container dropped."""
+    notes; this catches anything the scale-to-zero web container dropped.
+
+    Doubles as the keep-warm heartbeat for the interactive chat model."""
+    _warm_model()
     subprocess.run(["node", "backend/dist/tick.js", "lectures"], cwd="/app", check=False)
 
 
@@ -125,3 +128,55 @@ def drafts_tick():
 def push_tick():
     """Evening APNs digest: 'prep ready for tomorrow's N classes' (~8pm Eastern)."""
     subprocess.run(["node", "backend/dist/tick.js", "push"], cwd="/app", check=False)
+
+
+# --- Keep the chat model warm ----------------------------------------------
+# The Gemma endpoint is scale-to-zero, so the first chat after a few idle minutes
+# eats a long cold start (weights onto GPU). We ping it from lectures_tick (which
+# already runs every 3 min) so an interactive question gets a fast answer instead
+# of ~1-2 min, without adding a 6th scheduled function.
+# NOTE: this keeps a GPU warm and so incurs continuous GPU cost. To stop it,
+# remove the _warm_model() call in lectures_tick and redeploy. Warming is gated
+# to skip ~2am-7am Eastern (07:00-12:00 UTC) to avoid paying overnight.
+def _warm_model() -> None:
+    """Ping the chat model so it stays loaded for interactive questions."""
+    import datetime
+    import json
+    import os
+    import urllib.request
+
+    hour_utc = datetime.datetime.now(datetime.timezone.utc).hour
+    if 7 <= hour_utc < 12:
+        print("warm: quiet hours, skipping")
+        return
+
+    base = (os.environ.get("MODAL_MODEL_URL") or "").rstrip("/")
+    if not base:
+        print("warm: no MODAL_MODEL_URL")
+        return
+    if base.endswith("/chat/completions"):
+        url = base
+    elif base.endswith("/v1"):
+        url = base + "/chat/completions"
+    else:
+        url = base + "/v1/chat/completions"
+
+    payload = json.dumps(
+        {
+            "model": os.environ.get("MODEL_NAME", "gemma"),
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0,
+        }
+    ).encode()
+    headers = {"Content-Type": "application/json"}
+    token = os.environ.get("MODAL_MODEL_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=110) as resp:
+            print(f"warm: {resp.status}")
+    except Exception as exc:  # noqa: BLE001 - best-effort keep-warm
+        print(f"warm: error {exc}")

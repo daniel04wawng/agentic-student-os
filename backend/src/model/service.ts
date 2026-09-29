@@ -76,6 +76,27 @@ export class ModelService {
     return res;
   }
 
+  /**
+   * Stream text deltas when the provider supports it; otherwise fall back to a
+   * single-shot generate and yield the whole answer at once. Streaming is not
+   * cached (chat questions are one-off).
+   */
+  async *generateStream(req: ModelRequest): AsyncIterable<string> {
+    if (this.provider.generateStream) {
+      const start = Date.now();
+      let chars = 0;
+      for await (const delta of this.provider.generateStream(req)) {
+        chars += delta.length;
+        yield delta;
+      }
+      this.trace(this.provider.name, Date.now() - start, false);
+      void chars;
+      return;
+    }
+    const res = await this.generate(req);
+    if (res.text) yield res.text;
+  }
+
   async generateStructured<S extends ZodTypeAny>(
     req: ModelRequest,
     schema: S,

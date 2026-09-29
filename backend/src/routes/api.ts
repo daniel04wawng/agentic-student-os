@@ -5,7 +5,7 @@ import { approveArtifact, isApproved } from '../approval/approval.js';
 import { dismissNotification, registerDevice } from '../notifications/service.js';
 import { getReviewPacket } from '../review/packet.js';
 import { submitDiscussion, updateDiscussionDraft } from '../discussions/service.js';
-import { answerQuestion } from '../chat/service.js';
+import { answerQuestion, buildChatContext } from '../chat/service.js';
 import type { ModelService } from '../model/service.js';
 import type { Embedder } from '../retrieval/embed.js';
 import {
@@ -101,6 +101,72 @@ export function registerApiRoutes(
     if (!body) return reply;
     if (!model) return reply.code(503).send({ error: 'chat_unavailable' });
     return answerQuestion(db, model, { question: body.question, courseId: body.course_id, embedder });
+  });
+
+  // Streaming study chat (Server-Sent Events): emits `step` progress, a
+  // `sources` event, then `token` deltas as the answer is generated, so the UI
+  // can show it forming instead of a long silent wait. Falls back gracefully;
+  // the non-streaming /chat above stays available.
+  app.post('/chat/stream', async (req, reply) => {
+    const body = parseOr400(
+      z.object({ question: z.string().min(1).max(2000), course_id: z.string().uuid().optional() }),
+      req.body,
+      reply,
+    );
+    if (!body) return reply;
+    if (!model) return reply.code(503).send({ error: 'chat_unavailable' });
+
+    const raw = reply.raw;
+    reply.hijack();
+    raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const sse = (event: string, data: unknown): void => {
+      if (!raw.writableEnded) raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let closed = false;
+    req.raw.on('close', () => {
+      closed = true;
+    });
+
+    try {
+      sse('step', { text: 'Searching your course materials' });
+      const ctx = await buildChatContext(db, {
+        question: body.question,
+        courseId: body.course_id,
+        embedder,
+      });
+      if (closed) return;
+      sse('sources', { sources: ctx.sources });
+      sse('step', {
+        text: ctx.sources.length
+          ? `Found ${ctx.sources.length} source${ctx.sources.length === 1 ? '' : 's'}, writing your answer`
+          : 'No course match, answering from general knowledge',
+      });
+
+      let gotFirst = false;
+      const heartbeat = setInterval(() => {
+        if (!gotFirst && !closed) sse('step', { text: 'Waking the study model' });
+      }, 5000);
+      try {
+        for await (const delta of model.generateStream({ messages: ctx.messages, maxTokens: 1000 })) {
+          if (closed) break;
+          gotFirst = true;
+          sse('token', { delta });
+        }
+      } finally {
+        clearInterval(heartbeat);
+      }
+      if (!closed) sse('done', {});
+    } catch {
+      if (!closed) sse('error', { message: 'The assistant is unavailable right now.' });
+    } finally {
+      if (!raw.writableEnded) raw.end();
+    }
   });
 
   app.get('/assignments', async () => getAssignments(db));

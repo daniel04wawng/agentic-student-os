@@ -17,6 +17,8 @@ interface Msg {
   mine: boolean;
   text: string;
   sources?: Labeled[];
+  streaming?: boolean;
+  step?: string;
 }
 
 const SOURCE_ICON: Record<string, string> = { primer: '📘', lecture: '🎙️', material: '📄' };
@@ -207,7 +209,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -217,18 +218,68 @@ export default function ChatPage() {
     fetch(`${BACKEND}/health`, { method: 'GET' }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!sending) {
-      setElapsed(0);
-      return;
-    }
-    const started = Date.now();
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(id);
-  }, [sending]);
-
   function scrollToEnd() {
     requestAnimationFrame(() => listRef.current?.scrollTo(0, listRef.current.scrollHeight));
+  }
+
+  // Update the last (assistant) message in place as the stream arrives.
+  function patchLast(patch: (m: Msg) => Msg) {
+    setMessages((mm) => {
+      if (mm.length === 0) return mm;
+      const copy = mm.slice();
+      copy[copy.length - 1] = patch(copy[copy.length - 1]!);
+      return copy;
+    });
+  }
+
+  async function streamAnswer(question: string): Promise<boolean> {
+    const res = await fetch(`${BACKEND}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+    if (!res.ok || !res.body) return false;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let sawToken = false;
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() ?? '';
+      for (const frame of frames) {
+        const evLine = frame.split('\n').find((l) => l.startsWith('event:'));
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!evLine || !dataLine) continue;
+        const event = evLine.slice(6).trim();
+        let data: Record<string, unknown> = {};
+        try {
+          data = JSON.parse(dataLine.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (event === 'step') {
+          patchLast((m) => (sawToken ? m : { ...m, step: String(data.text ?? '') }));
+        } else if (event === 'sources') {
+          patchLast((m) => ({ ...m, sources: labelSources(data.sources as Source[]) }));
+        } else if (event === 'token') {
+          sawToken = true;
+          patchLast((m) => ({ ...m, text: m.text + String(data.delta ?? ''), step: undefined }));
+          scrollToEnd();
+        } else if (event === 'error') {
+          patchLast((m) => ({
+            ...m,
+            text: m.text || 'The assistant is unavailable right now. Try again in a moment.',
+            step: undefined,
+          }));
+        }
+      }
+    }
+    return sawToken;
   }
 
   async function send() {
@@ -236,37 +287,43 @@ export default function ChatPage() {
     if (!question || sending) return;
     setInput('');
     if (taRef.current) taRef.current.style.height = 'auto';
-    setMessages((mm) => [...mm, { mine: true, text: question }]);
+    setMessages((mm) => [
+      ...mm,
+      { mine: true, text: question },
+      { mine: false, text: '', streaming: true, step: 'Thinking' },
+    ]);
     setSending(true);
     scrollToEnd();
+
     try {
-      const res = await fetch(`${BACKEND}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      });
-      const data = await res.json();
-      setMessages((mm) => [
-        ...mm,
-        { mine: false, text: data.answer || 'No answer.', sources: labelSources(data.sources) },
-      ]);
+      const ok = await streamAnswer(question);
+      if (!ok) {
+        // Streaming unavailable: fall back to the one-shot endpoint.
+        const res = await fetch(`${BACKEND}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+        const data = await res.json();
+        patchLast((m) => ({
+          ...m,
+          text: data.answer || 'No answer.',
+          sources: labelSources(data.sources),
+          step: undefined,
+        }));
+      }
     } catch {
-      setMessages((mm) => [
-        ...mm,
-        { mine: false, text: "Couldn't reach the assistant. Try again in a moment." },
-      ]);
+      patchLast((m) => ({
+        ...m,
+        text: m.text || "Couldn't reach the assistant. Try again in a moment.",
+        step: undefined,
+      }));
     } finally {
+      patchLast((m) => ({ ...m, streaming: false, step: undefined }));
       setSending(false);
       scrollToEnd();
     }
   }
-
-  const waiting =
-    elapsed < 6
-      ? 'Thinking…'
-      : elapsed < 25
-        ? 'Reading your course materials…'
-        : `Waking the study model — the first answer can take up to a minute. (${elapsed}s)`;
 
   return (
     <main
@@ -329,36 +386,33 @@ export default function ChatPage() {
                 >
                   {msg.text}
                 </div>
+              ) : msg.text === '' ? (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-bubble)',
+                    borderBottomLeftRadius: 6,
+                    background: 'var(--bubble-them)',
+                    color: 'var(--label-secondary)',
+                    fontSize: 15,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span className="dots" aria-hidden>
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  {msg.step ?? 'Thinking'}
+                </div>
               ) : (
                 <AssistantBubble text={msg.text} sources={msg.sources ?? []} />
               )}
             </div>
           ))}
 
-          {sending && (
-            <div style={{ display: 'flex', justifyContent: 'flex-start', margin: '4px 0' }}>
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-bubble)',
-                  borderBottomLeftRadius: 6,
-                  background: 'var(--bubble-them)',
-                  color: 'var(--label-secondary)',
-                  fontSize: 15,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <span className="dots" aria-hidden>
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                {waiting}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

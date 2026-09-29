@@ -137,14 +137,22 @@ const CHAT_SYSTEM = [
  * transcripts when the user has them. Best-effort: with no matching context the
  * model still answers, flagging that it is general knowledge.
  */
-export async function answerQuestion(
-  db: SqlClient,
-  model: ModelService,
-  opts: { question: string; courseId?: string; embedder?: Embedder },
-): Promise<ChatAnswer> {
-  const question = opts.question.trim();
-  if (!question) return { answer: '', sources: [] };
+export interface ChatContext {
+  sources: ChatSource[];
+  messages: ModelMessage[];
+  /** How many of each source type were retrieved, for progress/thinking traces. */
+  counts: { primer: number; material: number; lecture: number };
+}
 
+/**
+ * Retrieve grounding context for a question and build the model messages. Shared
+ * by the one-shot answer path and the streaming path so both ground identically.
+ */
+export async function buildChatContext(
+  db: SqlClient,
+  opts: { question: string; courseId?: string; embedder?: Embedder },
+): Promise<ChatContext> {
+  const question = opts.question.trim();
   const [primers, materials, chunks] = await Promise.all([
     retrievePrimers(db, opts.embedder, question, opts.courseId, 6),
     searchMaterials(db, question, opts.courseId, 3),
@@ -177,6 +185,22 @@ export async function answerQuestion(
     { role: 'system', content: CHAT_SYSTEM },
     { role: 'user', content: `CONTEXT:\n${context}\n\nQUESTION: ${question}` },
   ];
+  return {
+    sources,
+    messages,
+    counts: { primer: primers.length, material: materials.length, lecture: chunks.length },
+  };
+}
+
+export async function answerQuestion(
+  db: SqlClient,
+  model: ModelService,
+  opts: { question: string; courseId?: string; embedder?: Embedder },
+): Promise<ChatAnswer> {
+  const question = opts.question.trim();
+  if (!question) return { answer: '', sources: [] };
+
+  const { sources, messages } = await buildChatContext(db, opts);
   const res = await model.generate({ messages, maxTokens: 1000 });
   return { answer: res.text.trim(), sources };
 }

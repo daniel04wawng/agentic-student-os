@@ -81,4 +81,65 @@ export class ModalModelProvider implements ModelProvider {
     };
     return { text: parsed.choices?.[0]?.message?.content ?? '', model: parsed.model ?? this.model };
   }
+
+  /** Stream text deltas from the vLLM OpenAI-compatible SSE response. */
+  async *generateStream(req: ModelRequest): AsyncIterable<string> {
+    if (!this.endpoint) throw new ModelUnavailableError('Modal endpoint not configured');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+
+    const body: Record<string, unknown> = {
+      model: req.model ?? this.model,
+      messages: req.messages,
+      temperature: req.temperature ?? 0,
+      max_tokens: req.maxTokens ?? 2048,
+      stream: true,
+    };
+
+    // Same cold-start tolerance as generate(): retry until the container is up.
+    const coldStartRetries = 120;
+    let res: Response | undefined;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        res = await this.fetchImpl(this.chatUrl(), { method: 'POST', headers, body: JSON.stringify(body) });
+      } catch (err) {
+        if (attempt < coldStartRetries) {
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
+        throw new ModelUnavailableError(`Modal unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if ((res.status === 503 || res.status === 502) && attempt < coldStartRetries) {
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      break;
+    }
+    if (!res || !res.ok || !res.body) throw new ModelUnavailableError(`Modal ${res?.status ?? 'unreachable'}`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE frames are separated by blank lines; each carries one `data:` line.
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') return;
+        try {
+          const json = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+          const delta = json.choices?.[0]?.delta?.content;
+          if (delta) yield delta;
+        } catch {
+          // Ignore keep-alive or partial frames.
+        }
+      }
+    }
+  }
 }

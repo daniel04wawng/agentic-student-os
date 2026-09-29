@@ -30,6 +30,12 @@ export interface ModelResponse {
 export interface ModelProvider {
   readonly name: string;
   generate(req: ModelRequest): Promise<ModelResponse>;
+  /**
+   * Optional token streaming. Yields text deltas as they are generated, so the
+   * UI can show the answer forming instead of waiting for the whole thing.
+   * Providers that do not implement it fall back to `generate`.
+   */
+  generateStream?(req: ModelRequest): AsyncIterable<string>;
 }
 
 export class ModelUnavailableError extends Error {
