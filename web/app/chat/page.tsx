@@ -222,7 +222,7 @@ export default function ChatPage() {
     requestAnimationFrame(() => listRef.current?.scrollTo(0, listRef.current.scrollHeight));
   }
 
-  // Update the last (assistant) message in place as the stream arrives.
+  // Update the last (assistant) message in place.
   function patchLast(patch: (m: Msg) => Msg) {
     setMessages((mm) => {
       if (mm.length === 0) return mm;
@@ -232,55 +232,14 @@ export default function ChatPage() {
     });
   }
 
-  async function streamAnswer(question: string): Promise<boolean> {
-    const res = await fetch(`${BACKEND}/chat/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
-    });
-    if (!res.ok || !res.body) return false;
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let sawToken = false;
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const evLine = frame.split('\n').find((l) => l.startsWith('event:'));
-        const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
-        if (!evLine || !dataLine) continue;
-        const event = evLine.slice(6).trim();
-        let data: Record<string, unknown> = {};
-        try {
-          data = JSON.parse(dataLine.slice(5).trim());
-        } catch {
-          continue;
-        }
-        if (event === 'step') {
-          patchLast((m) => (sawToken ? m : { ...m, step: String(data.text ?? '') }));
-        } else if (event === 'sources') {
-          patchLast((m) => ({ ...m, sources: labelSources(data.sources as Source[]) }));
-        } else if (event === 'token') {
-          sawToken = true;
-          patchLast((m) => ({ ...m, text: m.text + String(data.delta ?? ''), step: undefined }));
-          scrollToEnd();
-        } else if (event === 'error') {
-          patchLast((m) => ({
-            ...m,
-            text: m.text || 'The assistant is unavailable right now. Try again in a moment.',
-            step: undefined,
-          }));
-        }
-      }
-    }
-    return sawToken;
-  }
+  // Steps shown while the answer is being prepared, so the wait reads as work
+  // (retrieval then generation) rather than a dead spinner.
+  const THINKING_STEPS = [
+    'Searching your course materials',
+    'Reading the relevant passages',
+    'Writing your answer',
+    'Almost there',
+  ];
 
   async function send() {
     const question = input.trim();
@@ -290,35 +249,38 @@ export default function ChatPage() {
     setMessages((mm) => [
       ...mm,
       { mine: true, text: question },
-      { mine: false, text: '', streaming: true, step: 'Thinking' },
+      { mine: false, text: '', streaming: true, step: THINKING_STEPS[0] },
     ]);
     setSending(true);
     scrollToEnd();
 
+    let stepIdx = 0;
+    const stepTimer = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, THINKING_STEPS.length - 1);
+      patchLast((m) => (m.text ? m : { ...m, step: THINKING_STEPS[stepIdx] }));
+    }, 4000);
+
     try {
-      const ok = await streamAnswer(question);
-      if (!ok) {
-        // Streaming unavailable: fall back to the one-shot endpoint.
-        const res = await fetch(`${BACKEND}/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question }),
-        });
-        const data = await res.json();
-        patchLast((m) => ({
-          ...m,
-          text: data.answer || 'No answer.',
-          sources: labelSources(data.sources),
-          step: undefined,
-        }));
-      }
+      const res = await fetch(`${BACKEND}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+      patchLast((m) => ({
+        ...m,
+        text: data.answer || 'No answer.',
+        sources: labelSources(data.sources),
+        step: undefined,
+      }));
     } catch {
       patchLast((m) => ({
         ...m,
-        text: m.text || "Couldn't reach the assistant. Try again in a moment.",
+        text: "Couldn't reach the assistant. Try again in a moment.",
         step: undefined,
       }));
     } finally {
+      clearInterval(stepTimer);
       patchLast((m) => ({ ...m, streaming: false, step: undefined }));
       setSending(false);
       scrollToEnd();
