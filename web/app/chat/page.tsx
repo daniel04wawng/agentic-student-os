@@ -63,48 +63,93 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
     window.setTimeout(() => setActive((a) => (a === label ? null : a)), 1600);
   }
 
-  // Split the answer into text + clickable citation chips.
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  CITE_RE.lastIndex = 0;
-  let k = 0;
-  while ((m = CITE_RE.exec(text))) {
-    const label = m[1]!;
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    if (byLabel.has(label)) {
-      parts.push(
-        <button
-          key={`c${k++}`}
-          onClick={() => jumpTo(label)}
-          title={byLabel.get(label)!.title}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            verticalAlign: 'baseline',
-            border: 'none',
-            cursor: 'pointer',
-            background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
-            color: 'var(--accent)',
-            fontSize: 11,
-            fontWeight: 700,
-            lineHeight: 1,
-            padding: '2px 5px',
-            borderRadius: 6,
-            margin: '0 1px',
-            transform: 'translateY(-1px)',
-          }}
-        >
-          {label}
-        </button>,
-      );
-    } else {
-      parts.push(m[0]);
+  const chip = (label: string, key: string) => (
+    <button
+      key={key}
+      onClick={() => jumpTo(label)}
+      title={byLabel.get(label)!.title}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        verticalAlign: 'baseline',
+        border: 'none',
+        cursor: 'pointer',
+        background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+        color: 'var(--accent)',
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: 1,
+        padding: '2px 5px',
+        borderRadius: 6,
+        margin: '0 1px',
+        transform: 'translateY(-1px)',
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  // Inline markdown: **bold** and [P#] citation chips.
+  const renderInline = (str: string, base: string): React.ReactNode[] => {
+    const nodes: React.ReactNode[] = [];
+    const re = /(\*\*([^*]+?)\*\*)|(\[([PML]\d+)\])/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    let k = 0;
+    while ((m = re.exec(str))) {
+      if (m.index > last) nodes.push(str.slice(last, m.index));
+      if (m[1] !== undefined) {
+        nodes.push(<strong key={`${base}b${k}`}>{m[2]}</strong>);
+      } else {
+        const label = m[4]!;
+        nodes.push(byLabel.has(label) ? chip(label, `${base}c${k}`) : m[3]);
+      }
+      last = m.index + m[0].length;
+      k += 1;
     }
-    last = m.index + m[0].length;
-    k++;
-  }
-  if (last < text.length) parts.push(text.slice(last));
+    if (last < str.length) nodes.push(str.slice(last));
+    return nodes;
+  };
+
+  // Block markdown: paragraphs + bullet lists.
+  const renderBlocks = (full: string): React.ReactNode[] => {
+    const lines = full.split('\n');
+    const out: React.ReactNode[] = [];
+    let bullets: React.ReactNode[] = [];
+    let key = 0;
+    const flush = () => {
+      if (bullets.length) {
+        out.push(
+          <ul key={`u${key++}`} style={{ margin: '6px 0', paddingLeft: 20 }}>
+            {bullets}
+          </ul>,
+        );
+        bullets = [];
+      }
+    };
+    lines.forEach((line, i) => {
+      const t = line.trim();
+      const bm = /^[*-]\s+(.*)$/.exec(t);
+      if (bm) {
+        bullets.push(
+          <li key={`li${key++}`} style={{ margin: '3px 0' }}>
+            {renderInline(bm[1]!, `l${i}`)}
+          </li>,
+        );
+      } else if (t === '') {
+        flush();
+      } else {
+        flush();
+        out.push(
+          <p key={`p${key++}`} style={{ margin: '5px 0' }}>
+            {renderInline(t, `p${i}`)}
+          </p>,
+        );
+      }
+    });
+    flush();
+    return out;
+  };
 
   return (
     <div
@@ -117,11 +162,10 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
         color: 'var(--bubble-them-text)',
         fontSize: 16,
         lineHeight: 1.45,
-        whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}
     >
-      {parts}
+      {renderBlocks(text)}
       {refs.length > 0 && (
         <div
           style={{
