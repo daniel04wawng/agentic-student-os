@@ -11,3 +11,10 @@ buildCommand = "cd web && npm ci && npm run build && cp -r .next/static .next/st
 
 [deploy]
 startCommand = "cd web/.next/standalone && HOSTNAME=0.0.0.0 node server.js"
+# Explicit health check so Railway waits for the server to answer instead of
+# racing/flapping and marking the deploy failed while the container is fine.
+healthcheckPath = "/"
+healthcheckTimeout = 300
+# Don't leave the old version serving on a transient failure; retry the new one.
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
