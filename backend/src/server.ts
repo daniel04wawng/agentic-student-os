@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import { HealthResponseSchema, TRACE_HEADER, type HealthResponse } from '@student-os/shared';
 import type { Config } from './config.js';
 import type { SqlClient } from './db/client.js';
@@ -69,6 +70,14 @@ export function buildServer(config: Config, deps: ServerDeps = {}): FastifyInsta
 
   app.decorateRequest('traceId', '');
   app.decorateRequest('userId', undefined);
+
+  // CORS so the web app (a different origin, e.g. on Railway) can call the API
+  // from the browser. Reflects the request origin; auth still protects the data.
+  void app.register(cors, {
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-trace-id', 'ngrok-skip-browser-warning'],
+  });
 
   // Mount the Inngest serve endpoint only when configured, so an unconfigured
   // backend has no /api/inngest route returning errors.

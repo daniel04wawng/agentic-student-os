@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@student-os/shared": "*",
     "fastify": "^5.1.0",
     "inngest": "^4.20.0",
