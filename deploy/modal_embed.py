@@ -194,6 +194,89 @@ def ingest_sessions() -> None:
     secrets=[modal.Secret.from_name("student-os-backend-env")],
     timeout=300,
 )
+def inspect_topics() -> None:
+    """Show sections + first lines per primer, to derive human topic titles."""
+    import os
+    import re
+
+    import psycopg
+
+    def label(t):
+        if not t:
+            return "Primer"
+        m = re.search(r"Primer\s+(\d{1,2})", t, re.I)
+        if not m:
+            return t.strip()
+        n = m.group(1)
+        if len(n) == 2 and n[0] == "8":
+            n = "0" + n[1]
+        return f"Primer {n.zfill(2)}"
+
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT source_title, section, text, chunk_index FROM resource_chunks WHERE source_title NOT LIKE 'Session %% schedule' ORDER BY chunk_index"
+            )
+            rows = cur.fetchall()
+    seen = {}
+    for st, sec, text, _ in rows:
+        key = label(st)
+        if key not in seen:
+            seen[key] = {"sections": set(), "first": (text or "")[:160]}
+        if sec:
+            seen[key]["sections"].add(sec[:60])
+    for k in sorted(seen):
+        print(f"\n{k}:")
+        print("  first:", seen[k]["first"].replace("\n", " "))
+        print("  sections:", list(seen[k]["sections"])[:6])
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=600,
+)
+def clean_ocr() -> None:
+    """Fix OCR homoglyphs in the primer text (Cyrillic look-alikes the OCR
+    mistook for Latin, e.g. 'вох' -> 'box'). Any Cyrillic in this English
+    textbook is an OCR error, so mapping the visual look-alikes to Latin is safe.
+    Updates resource_chunks in place (skips the session-schedule rows)."""
+    import os
+
+    import psycopg
+
+    # Cyrillic -> visually-identical Latin.
+    homoglyphs = {
+        "а": "a", "в": "b", "е": "e", "к": "k", "м": "m", "н": "h", "о": "o",
+        "р": "p", "с": "c", "т": "t", "у": "y", "х": "x", "ѕ": "s", "і": "i",
+        "ј": "j", "ԁ": "d", "ɡ": "g", "А": "A", "В": "B", "Е": "E", "К": "K",
+        "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "У": "Y",
+        "Х": "X", "І": "I", "Ј": "J", "Ѕ": "S",
+    }
+    table = {ord(k): v for k, v in homoglyphs.items()}
+
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, text FROM resource_chunks WHERE source_title IS NULL OR source_title NOT LIKE 'Session %% schedule'"
+            )
+            rows = cur.fetchall()
+            changed = 0
+            for rid, text in rows:
+                cleaned = (text or "").translate(table)
+                if cleaned != text:
+                    cur.execute(
+                        "UPDATE resource_chunks SET text = %s WHERE id = %s", [cleaned, rid]
+                    )
+                    changed += 1
+            print(f"cleaned {changed}/{len(rows)} primer chunks")
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=300,
+)
 def inspect_event() -> None:
     """Does the Canvas calendar event for Session 8 carry the detail text?"""
     import json

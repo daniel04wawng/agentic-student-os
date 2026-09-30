@@ -94,8 +94,12 @@ export function registerApiRoutes(
   // into chapters in reading order, so students can read the primers as text
   // instead of the source photos.
   app.get('/textbook', async () => {
-    const { rows } = await db.query<{ source_title: string | null; text: string }>(
-      `SELECT source_title, text FROM resource_chunks
+    const { rows } = await db.query<{
+      source_title: string | null;
+      section: string | null;
+      text: string;
+    }>(
+      `SELECT source_title, section, text FROM resource_chunks
        WHERE source_title IS NULL OR source_title NOT LIKE 'Session % schedule'
        ORDER BY chunk_index ASC, created_at ASC`,
     );
@@ -109,15 +113,35 @@ export function registerApiRoutes(
       if (n.length === 2 && n[0] === '8') n = `0${n[1]}`;
       return `Primer ${n.padStart(2, '0')}`;
     };
+    // Keep only section values that read like real headings (drop OCR fragments).
+    const cleanHeading = (s: string | null): string | undefined => {
+      if (!s) return undefined;
+      const t = s.trim().replace(/\s+/g, ' ');
+      if (t.length < 6 || t.length > 70) return undefined;
+      if (!/^[A-Z]/.test(t) || !/\s/.test(t)) return undefined;
+      if (/[),]$/.test(t) || /\d{3,}/.test(t)) return undefined;
+      const letters = (t.match(/[A-Za-z]/g) ?? []).length;
+      if (letters < t.length * 0.6) return undefined;
+      return t;
+    };
+
+    interface Block {
+      heading?: string;
+      text: string;
+    }
     const order: string[] = [];
-    const byTitle = new Map<string, string[]>();
+    const byTitle = new Map<string, Block[]>();
     for (const r of rows) {
       const key = label(r.source_title);
       if (!byTitle.has(key)) {
         byTitle.set(key, []);
         order.push(key);
       }
-      byTitle.get(key)!.push(r.text);
+      const blocks = byTitle.get(key)!;
+      const heading = cleanHeading(r.section);
+      if (heading) blocks.push({ heading, text: r.text });
+      else if (blocks.length) blocks[blocks.length - 1]!.text += `\n\n${r.text}`;
+      else blocks.push({ text: r.text });
     }
     // Numbered primers first (01..07), then special topics in reading order.
     const num = (t: string): number => {
@@ -126,8 +150,25 @@ export function registerApiRoutes(
     };
     const firstSeen = new Map(order.map((t, i) => [t, i] as const));
     order.sort((a, b) => num(a) - num(b) || firstSeen.get(a)! - firstSeen.get(b)!);
+    // Human topic per primer (students navigate by topic, not by number).
+    const topics: Record<string, string> = {
+      'Primer 01': 'What Macroeconomics Studies',
+      'Primer 02': 'The Five Propositions',
+      'Primer 03': 'Why We Measure GDP',
+      'Primer 04': 'The Map Versus the Territory',
+      'Primer 05': 'Labour Force & Hours',
+      'Primer 06': 'What Drives Productivity',
+      'Primer 07': 'Public Debt & Growth',
+      'Special Topic': 'Tariffs & the Macroeconomy',
+      'Special Topic (Tariffs)': 'Tariffs: The Full Accounting',
+      'GMM Primer': 'Spending Over Time',
+    };
     return {
-      chapters: order.map((title) => ({ title, text: byTitle.get(title)!.join('\n\n') })),
+      chapters: order.map((title) => ({
+        title,
+        topic: topics[title] ?? title,
+        blocks: byTitle.get(title)!,
+      })),
     };
   });
 
