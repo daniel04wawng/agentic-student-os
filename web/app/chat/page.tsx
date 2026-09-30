@@ -69,10 +69,11 @@ function AssistantBubble({
   );
   const refs = (citedLabels.length ? citedLabels.map((l) => byLabel.get(l)).filter(Boolean) : sources) as Labeled[];
 
-  // Clicking a primer citation also opens the textbook to that primer.
+  // Clicking any citation that refers to a primer (a primer chunk OR the
+  // "Primer-01…pdf" material) opens the textbook to that primer.
   function maybeOpenPrimer(label: string) {
     const s = byLabel.get(label);
-    if (s && s.type === 'primer' && /Primer\s+\d/i.test(s.title)) onOpenPrimer?.(s.title);
+    if (s && /Primer[\s\-_]*\d/i.test(s.title)) onOpenPrimer?.(s.title);
   }
 
   function jumpTo(label: string) {

@@ -92,7 +92,7 @@ function Paragraph({ text, dropCap }: { text: string; dropCap: boolean }) {
 // Normalize any primer reference ("Primer 07 - ...", "Primer 87") to a chapter
 // title ("Primer 07") so a citation can jump to the right chapter.
 function primerKey(t: string): string {
-  const m = /Primer\s+(\d{1,2})/i.exec(t);
+  const m = /Primer[\s\-_]*(\d{1,2})/i.exec(t);
   if (!m) return t.trim();
   let n = m[1]!;
   if (n.length === 2 && n[0] === '8') n = `0${n[1]}`;
