@@ -89,8 +89,29 @@ function Paragraph({ text, dropCap }: { text: string; dropCap: boolean }) {
   return <p style={{ margin: '0 0 18px' }}>{text}</p>;
 }
 
-export function Textbook({ backend }: { backend: string }) {
-  const [open, setOpen] = useState(false);
+// Normalize any primer reference ("Primer 07 - ...", "Primer 87") to a chapter
+// title ("Primer 07") so a citation can jump to the right chapter.
+function primerKey(t: string): string {
+  const m = /Primer\s+(\d{1,2})/i.exec(t);
+  if (!m) return t.trim();
+  let n = m[1]!;
+  if (n.length === 2 && n[0] === '8') n = `0${n[1]}`;
+  return `Primer ${n.padStart(2, '0')}`;
+}
+
+export function Textbook({
+  backend,
+  open,
+  target,
+  onOpen,
+  onClose,
+}: {
+  backend: string;
+  open: boolean;
+  target: string | null;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
   const [chapters, setChapters] = useState<Chapter[] | null>(null);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -105,13 +126,21 @@ export function Textbook({ backend }: { backend: string }) {
       .finally(() => setLoading(false));
   }, [open, chapters, backend]);
 
+  // Jump to the cited primer once chapters are loaded.
+  useEffect(() => {
+    if (!open || !target || !chapters) return;
+    const key = primerKey(target);
+    const idx = chapters.findIndex((c) => c.title === key);
+    if (idx >= 0) setActive(idx);
+  }, [open, target, chapters]);
+
   const current = chapters?.[active];
   let firstPara = true;
 
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={onOpen}
         aria-label="Open textbook"
         style={{
           position: 'fixed',
@@ -143,7 +172,7 @@ export function Textbook({ backend }: { backend: string }) {
 
       {open && (
         <div
-          onClick={() => setOpen(false)}
+          onClick={onClose}
           style={{
             position: 'fixed',
             inset: 0,
@@ -177,7 +206,7 @@ export function Textbook({ backend }: { backend: string }) {
             >
               <strong style={{ fontSize: 17 }}>📖 Course primers</strong>
               <button
-                onClick={() => setOpen(false)}
+                onClick={onClose}
                 aria-label="Close"
                 style={{
                   border: 'none',

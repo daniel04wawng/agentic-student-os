@@ -48,7 +48,15 @@ function labelSources(sources?: Source[]): Labeled[] {
 const CITE_RE = /\[([PML]\d+(?:\s*,\s*[PML]\d+)*)\]/g;
 const LABEL_RE = /[PML]\d+/g;
 
-function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }) {
+function AssistantBubble({
+  text,
+  sources,
+  onOpenPrimer,
+}: {
+  text: string;
+  sources: Labeled[];
+  onOpenPrimer?: (title: string) => void;
+}) {
   const byLabel = new Map(sources.map((s) => [s.label, s]));
   const [active, setActive] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -61,11 +69,18 @@ function AssistantBubble({ text, sources }: { text: string; sources: Labeled[] }
   );
   const refs = (citedLabels.length ? citedLabels.map((l) => byLabel.get(l)).filter(Boolean) : sources) as Labeled[];
 
+  // Clicking a primer citation also opens the textbook to that primer.
+  function maybeOpenPrimer(label: string) {
+    const s = byLabel.get(label);
+    if (s && s.type === 'primer' && /Primer\s+\d/i.test(s.title)) onOpenPrimer?.(s.title);
+  }
+
   function jumpTo(label: string) {
     setActive(label);
     setExpanded((e) => (e === label ? e : label)); // reveal the passage
     refFor.current[label]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     window.setTimeout(() => setActive((a) => (a === label ? null : a)), 1600);
+    maybeOpenPrimer(label);
   }
 
   const chip = (label: string, key: string) => (
@@ -265,7 +280,14 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [tbOpen, setTbOpen] = useState(false);
+  const [tbTarget, setTbTarget] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  function openPrimer(title: string) {
+    setTbTarget(title);
+    setTbOpen(true);
+  }
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Kick the backend awake as soon as the page opens, so it is warming while the
@@ -352,7 +374,16 @@ export default function ChatPage() {
         background: 'var(--bg)',
       }}
     >
-      <Textbook backend={BACKEND} />
+      <Textbook
+        backend={BACKEND}
+        open={tbOpen}
+        target={tbTarget}
+        onOpen={() => {
+          setTbTarget(null);
+          setTbOpen(true);
+        }}
+        onClose={() => setTbOpen(false)}
+      />
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto' }}>
         <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 16px 8px' }}>
           {messages.length === 0 && !sending && (
@@ -427,7 +458,11 @@ export default function ChatPage() {
                   {msg.step ?? 'Thinking'}
                 </div>
               ) : (
-                <AssistantBubble text={msg.text} sources={msg.sources ?? []} />
+                <AssistantBubble
+                  text={msg.text}
+                  sources={msg.sources ?? []}
+                  onOpenPrimer={openPrimer}
+                />
               )}
             </div>
           ))}
