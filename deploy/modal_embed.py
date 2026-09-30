@@ -194,6 +194,23 @@ def ingest_sessions() -> None:
     secrets=[modal.Secret.from_name("student-os-backend-env")],
     timeout=120,
 )
+def reset_pageviews() -> None:
+    """Drop test/seed page-view rows so real traffic starts clean."""
+    import os
+
+    import psycopg
+
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM pageviews WHERE visitor LIKE 'v-test-%'")
+            print("removed", cur.rowcount, "test rows")
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=120,
+)
 def migrate_pageviews() -> None:
     """Create the pageviews table (self-hosted web analytics)."""
     import os
