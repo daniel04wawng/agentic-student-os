@@ -338,13 +338,33 @@ export default function ChatPage() {
       patchLast((m) => (m.text ? m : { ...m, step: THINKING_STEPS[stepIdx] }));
     }, 4000);
 
+    // The model is scale-to-zero, so the first request after idle can time out
+    // during the cold start. Retry a few times so a cold start reads as "slow",
+    // not a hard failure.
+    async function ask(): Promise<{ answer?: string; sources?: Source[] }> {
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const res = await fetch(`${BACKEND}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question }),
+          });
+          if (!res.ok) throw new Error(`status ${res.status}`);
+          return await res.json();
+        } catch (e) {
+          lastErr = e;
+          patchLast((m) =>
+            m.text ? m : { ...m, step: 'Waking the study model (first answer can be slow)' },
+          );
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+      throw lastErr;
+    }
+
     try {
-      const res = await fetch(`${BACKEND}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      });
-      const data = await res.json();
+      const data = await ask();
       patchLast((m) => ({
         ...m,
         text: data.answer || 'No answer.',
