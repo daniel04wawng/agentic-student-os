@@ -113,8 +113,9 @@ def lectures_tick():
     transcription + note generation in-process for near-instant (Granola-style)
     notes; this catches anything the scale-to-zero web container dropped.
 
-    Doubles as the keep-warm heartbeat for the interactive chat model."""
-    _warm_model()
+    Keep-warm is OFF for cost: the Gemma B200 endpoint is ~99% of spend, so we
+    let it scale to zero and accept a cold start on the first question. To trade
+    cost for speed again, call _warm_model() here (or on a shorter schedule)."""
     subprocess.run(["node", "backend/dist/tick.js", "lectures"], cwd="/app", check=False)
 
 
