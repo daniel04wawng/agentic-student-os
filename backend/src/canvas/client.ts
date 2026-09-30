@@ -53,6 +53,10 @@ export interface CanvasContentClient extends CanvasClient {
   listFilesViaModules(courseId: number): Promise<CanvasFile[]>;
   /** Download a file's bytes (ephemeral; caller extracts text then discards). */
   downloadFile(url: string): Promise<Buffer>;
+  /** One calendar event's raw fields (its description links to the detail Page). */
+  getCalendarEvent?(eventId: number): Promise<{ description?: string; title?: string }>;
+  /** A Canvas Page's HTML body (the per-session detail page). */
+  getPageBody?(courseId: number, pageId: string): Promise<string>;
 }
 
 export class CanvasError extends Error {
@@ -169,6 +173,16 @@ export class DirectCanvasClient implements CanvasContentClient {
   async getFile(courseId: number, fileId: number): Promise<CanvasFile> {
     const res = await this.get(`/api/v1/courses/${courseId}/files/${fileId}`);
     return (await res.json()) as CanvasFile;
+  }
+
+  async getCalendarEvent(eventId: number): Promise<{ description?: string; title?: string }> {
+    const res = await this.get(`/api/v1/calendar_events/${eventId}`);
+    return (await res.json()) as { description?: string; title?: string };
+  }
+
+  async getPageBody(courseId: number, pageId: string): Promise<string> {
+    const res = await this.get(`/api/v1/courses/${courseId}/pages/${pageId}`);
+    return ((await res.json()) as { body?: string }).body ?? '';
   }
 
   async listFilesViaModules(courseId: number): Promise<CanvasFile[]> {

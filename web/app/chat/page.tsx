@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Textbook } from './Textbook';
 
 const BACKEND =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://daniel04wawng--student-os-backend-serve.modal.run';
@@ -351,6 +352,7 @@ export default function ChatPage() {
         background: 'var(--bg)',
       }}
     >
+      <Textbook backend={BACKEND} />
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto' }}>
         <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 16px 8px' }}>
           {messages.length === 0 && !sending && (

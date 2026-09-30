@@ -101,6 +101,173 @@ def embed(payload: dict) -> dict:
 
 @app.function(
     image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=900,
+)
+def ingest_sessions() -> None:
+    """Fetch each GMM session's Canvas detail page (topic + assigned readings +
+    refresher primer) and store it as embedded, searchable resource_chunks so the
+    chat can answer 'I'm on session 8, what primer do I need?'. Idempotent."""
+    import html
+    import json
+    import os
+    import re
+    import urllib.request
+
+    import psycopg
+
+    base = (os.environ.get("CANVAS_BASE_URL") or "").rstrip("/")
+    token = os.environ.get("CANVAS_API_TOKEN")
+
+    def canvas_get(path: str) -> dict:
+        req = urllib.request.Request(
+            f"{base}{path}", headers={"Authorization": f"Bearer {token}"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+
+    def strip_html(s: str) -> str:
+        s = re.sub(r"<script[\s\S]*?</script>", " ", s, flags=re.I)
+        s = re.sub(r"<style[\s\S]*?</style>", " ", s, flags=re.I)
+        s = re.sub(r"<li[^>]*>", "\n- ", s, flags=re.I)
+        s = re.sub(r"<(p|br|div|h\d|tr)[^>]*>", "\n", s, flags=re.I)
+        s = re.sub(r"<[^>]+>", " ", s)
+        s = html.unescape(s)
+        s = re.sub(r"[ \t]+", " ", s)
+        s = re.sub(r"\n\s*\n\s*\n+", "\n\n", s)
+        return s.strip()
+
+    model = _get_model()
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM courses WHERE name ILIKE '%Global Macro%' OR code ILIKE '%7096%' LIMIT 1"
+            )
+            course_id = cur.fetchone()[0]
+            cur.execute(
+                "SELECT title, starts_at, metadata FROM sessions WHERE course_id=%s AND metadata ? 'canvas_event_id' ORDER BY starts_at",
+                [course_id],
+            )
+            sessions = cur.fetchall()
+            # Clear prior session-schedule chunks so this is idempotent.
+            cur.execute(
+                "DELETE FROM resource_chunks WHERE course_id=%s AND source_title LIKE 'Session %%schedule'",
+                [course_id],
+            )
+
+            inserted = 0
+            for title, starts_at, meta in sessions:
+                event_id = meta.get("canvas_event_id")
+                num_m = re.search(r"Session\s+(\d+)", title or "")
+                if not event_id or not num_m:
+                    continue
+                snum = num_m.group(1)
+                try:
+                    ev = canvas_get(f"/api/v1/calendar_events/{event_id}")
+                    desc = ev.get("description") or ""
+                    pm = re.search(r"/courses/(\d+)/pages/([^\"'?]+)", desc)
+                    if not pm:
+                        print(f"Session {snum}: no page link")
+                        continue
+                    page = canvas_get(f"/api/v1/courses/{pm.group(1)}/pages/{pm.group(2)}")
+                    text = strip_html(page.get("body") or "")
+                    if len(text) < 40:
+                        print(f"Session {snum}: page empty")
+                        continue
+                    date = starts_at.date().isoformat() if starts_at else ""
+                    body = f"Session {snum} ({date}) - {page.get('title') or title}\n\n{text}"
+                    vec = model.encode([body[:2000]], normalize_embeddings=True)[0].tolist()
+                    cur.execute(
+                        """INSERT INTO resource_chunks (course_id, source_title, section, chunk_index, text, embedding)
+                           VALUES (%s, %s, %s, 0, %s, %s::jsonb)""",
+                        [course_id, f"Session {snum} schedule", date, body, json.dumps(vec)],
+                    )
+                    inserted += 1
+                    print(f"Session {snum}: ingested {len(text)} chars")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Session {snum}: error {exc}")
+            print(f"\nDONE: {inserted} session detail pages ingested")
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=300,
+)
+def inspect_event() -> None:
+    """Does the Canvas calendar event for Session 8 carry the detail text?"""
+    import json
+    import os
+    import urllib.request
+
+    import psycopg
+
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT title, metadata FROM sessions WHERE title ILIKE '%Session 8%' LIMIT 1"
+            )
+            row = cur.fetchone()
+    print("session:", row[0] if row else None, "meta:", row[1] if row else None)
+    if not row:
+        return
+    event_id = row[1].get("canvas_event_id")
+    base = (os.environ.get("CANVAS_BASE_URL") or "").rstrip("/")
+    token = os.environ.get("CANVAS_API_TOKEN")
+    url = f"{base}/api/v1/calendar_events/{event_id}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        print("EVENT title:", data.get("title"))
+        desc = data.get("description") or ""
+        print("EVENT description length:", len(desc))
+        print("DESCRIPTION (first 1500 chars):\n", desc[:1500])
+    except Exception as exc:  # noqa: BLE001
+        print("canvas fetch error:", exc)
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=300,
+)
+def inspect() -> None:
+    """One-off: what session/material data exists for the GMM course?"""
+    import os
+
+    import psycopg
+
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, name FROM courses WHERE name ILIKE '%macro%' OR name ILIKE '%GMM%' OR code ILIKE '%7096%' ORDER BY name"
+            )
+            courses = cur.fetchall()
+            print("COURSES:", courses)
+            for cid, ctitle in courses:
+                cur.execute(
+                    "SELECT title, starts_at, metadata FROM sessions WHERE course_id=%s ORDER BY starts_at LIMIT 12",
+                    [cid],
+                )
+                rows = cur.fetchall()
+                print(f"\n== {ctitle} sessions ({len(rows)} shown) ==")
+                for t, s, meta in rows:
+                    mk = list(meta.keys()) if isinstance(meta, dict) else meta
+                    print(f"  {s} | {t} | meta_keys={mk}")
+            # Is the per-session detail text ingested anywhere?
+            for tbl, col in [("materials", "title"), ("resource_chunks", "source_title")]:
+                cur.execute(
+                    f"SELECT {col}, left(text,120) FROM {tbl} WHERE text ILIKE '%session 8%' OR text ILIKE '%optional refresher%' LIMIT 5"
+                )
+                hits = cur.fetchall()
+                print(f"\n{tbl} rows mentioning 'session 8'/'refresher': {len(hits)}")
+                for h in hits:
+                    print("   ", h[0], "::", h[1])
+
+
+@app.function(
+    image=image,
     # DATABASE_URL comes from the backend's secret so the credential never leaves
     # Modal. Run: modal run deploy/modal_embed.py::backfill
     secrets=[modal.Secret.from_name("student-os-backend-env")],

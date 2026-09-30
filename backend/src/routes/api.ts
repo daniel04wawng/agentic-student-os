@@ -90,6 +90,47 @@ export function registerApiRoutes(
   // Sessions around now, for the "which class is this lecture" override picker.
   app.get('/sessions', async () => listSessions(db));
 
+  // Readable "textbook" view of the course primers (the OCR'd book), grouped
+  // into chapters in reading order, so students can read the primers as text
+  // instead of the source photos.
+  app.get('/textbook', async () => {
+    const { rows } = await db.query<{ source_title: string | null; text: string }>(
+      `SELECT source_title, text FROM resource_chunks
+       WHERE source_title IS NULL OR source_title NOT LIKE 'Session % schedule'
+       ORDER BY chunk_index ASC, created_at ASC`,
+    );
+    // Normalize OCR primer titles ("Primer 87" -> "Primer 07"; single digit ->
+    // zero-padded) and group chunks into chapters in first-seen (reading) order.
+    const label = (t: string | null): string => {
+      if (!t) return 'Primer';
+      const m = /Primer\s+(\d{1,2})/i.exec(t);
+      if (!m) return t.trim();
+      let n = m[1]!;
+      if (n.length === 2 && n[0] === '8') n = `0${n[1]}`;
+      return `Primer ${n.padStart(2, '0')}`;
+    };
+    const order: string[] = [];
+    const byTitle = new Map<string, string[]>();
+    for (const r of rows) {
+      const key = label(r.source_title);
+      if (!byTitle.has(key)) {
+        byTitle.set(key, []);
+        order.push(key);
+      }
+      byTitle.get(key)!.push(r.text);
+    }
+    // Numbered primers first (01..07), then special topics in reading order.
+    const num = (t: string): number => {
+      const m = /Primer\s+(\d+)/.exec(t);
+      return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+    };
+    const firstSeen = new Map(order.map((t, i) => [t, i] as const));
+    order.sort((a, b) => num(a) - num(b) || firstSeen.get(a)! - firstSeen.get(b)!);
+    return {
+      chapters: order.map((title) => ({ title, text: byTitle.get(title)!.join('\n\n') })),
+    };
+  });
+
   // Study chat: ask a question, get an answer grounded in your own materials +
   // lectures. Requires a model; 503 when the backend has none configured.
   app.post('/chat', async (req, reply) => {

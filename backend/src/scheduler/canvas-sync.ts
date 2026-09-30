@@ -1,4 +1,5 @@
 import { resolveCourseFiles, type CanvasContentClient } from '../canvas/client.js';
+import { syncSessionSchedules } from '../canvas/session-schedule.js';
 import { ingestCalendars, ingestCanvas } from '../canvas/ingest.js';
 import type { CanvasCourse, CanvasFile } from '../canvas/types.js';
 import { syncIveySessionPlans } from '../classprep/ivey-schedule.js';
@@ -126,6 +127,13 @@ export async function runCanvasSync(
   let scheduled = 0;
   for (const c of active) {
     materials += await syncCourseMaterials(db, client, Number(c.source_id));
+    // Per-session detail pages (topic + assigned readings + refresher primer) so
+    // the chat can answer "I'm on session 8, what primer do I need?".
+    try {
+      await syncSessionSchedules(db, client, c.id);
+    } catch {
+      // best-effort; a page-fetch failure must not break the whole sync
+    }
     // Materials are ingested first so the coursepack exists to match against.
     if (opts.iveyAuth) {
       scheduled += await syncIveySessionPlans(db, opts.iveyAuth, Number(c.source_id), c.id);
