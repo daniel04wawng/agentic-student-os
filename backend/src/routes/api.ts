@@ -172,6 +172,63 @@ export function registerApiRoutes(
     };
   });
 
+  // --- Lightweight, self-hosted web analytics -----------------------------
+  // A privacy-light page-view beacon (no PII; a coarse per-browser id for unique
+  // counts) and an aggregate stats endpoint for the owner.
+  app.post('/track', async (req, reply) => {
+    const body = parseOr400(
+      z.object({
+        path: z.string().max(300),
+        referrer: z.string().max(500).optional(),
+        visitor: z.string().max(64).optional(),
+      }),
+      req.body,
+      reply,
+    );
+    if (!body) return reply;
+    try {
+      await db.query(
+        `INSERT INTO pageviews (path, referrer, visitor) VALUES ($1, $2, $3)`,
+        [body.path, body.referrer ?? null, body.visitor ?? null],
+      );
+    } catch {
+      // analytics must never break the app
+    }
+    return reply.code(204).send();
+  });
+
+  app.get('/stats', async () => {
+    const [totals, byDay, topPaths, topRef] = await Promise.all([
+      db.query<{ views: string; visitors: string; last7: string }>(
+        `SELECT count(*) AS views,
+                count(DISTINCT visitor) AS visitors,
+                count(*) FILTER (WHERE created_at > now() - interval '7 days') AS last7
+         FROM pageviews`,
+      ),
+      db.query<{ day: string; views: string }>(
+        `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day, count(*) AS views
+         FROM pageviews WHERE created_at > now() - interval '14 days'
+         GROUP BY 1 ORDER BY 1`,
+      ),
+      db.query<{ path: string; views: string }>(
+        `SELECT path, count(*) AS views FROM pageviews GROUP BY path ORDER BY 2 DESC LIMIT 10`,
+      ),
+      db.query<{ referrer: string; views: string }>(
+        `SELECT coalesce(nullif(referrer, ''), '(direct)') AS referrer, count(*) AS views
+         FROM pageviews GROUP BY 1 ORDER BY 2 DESC LIMIT 10`,
+      ),
+    ]);
+    const t = totals.rows[0];
+    return {
+      totalViews: Number(t?.views ?? 0),
+      uniqueVisitors: Number(t?.visitors ?? 0),
+      viewsLast7Days: Number(t?.last7 ?? 0),
+      byDay: byDay.rows.map((r) => ({ day: r.day, views: Number(r.views) })),
+      topPaths: topPaths.rows.map((r) => ({ path: r.path, views: Number(r.views) })),
+      topReferrers: topRef.rows.map((r) => ({ referrer: r.referrer, views: Number(r.views) })),
+    };
+  });
+
   // Study chat: ask a question, get an answer grounded in your own materials +
   // lectures. Requires a model; 503 when the backend has none configured.
   app.post('/chat', async (req, reply) => {

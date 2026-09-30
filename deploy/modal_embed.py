@@ -192,6 +192,34 @@ def ingest_sessions() -> None:
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("student-os-backend-env")],
+    timeout=120,
+)
+def migrate_pageviews() -> None:
+    """Create the pageviews table (self-hosted web analytics)."""
+    import os
+
+    import psycopg
+
+    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS pageviews (
+                     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                     path text NOT NULL,
+                     referrer text,
+                     visitor text,
+                     created_at timestamptz NOT NULL DEFAULT now()
+                   )"""
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS pageviews_created_idx ON pageviews (created_at)"
+            )
+    print("pageviews ready")
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("student-os-backend-env")],
     timeout=300,
 )
 def inspect_topics() -> None:

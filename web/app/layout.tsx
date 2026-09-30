@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ClerkProvider, Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
+import { Analytics } from './Analytics';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
+        <Analytics />
         <nav className="nav">
           <Link href="/" className="nav__brand">
             <span aria-hidden>🎓</span>
