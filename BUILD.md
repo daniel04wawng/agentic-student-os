@@ -187,6 +187,30 @@ two overlapping deploys race and one gets marked "failed" even though the site i
 
 ---
 
+## Digitizing the textbook (OCR the whole book)
+
+The course primers only existed as a physical spiral-bound book, so the whole thing
+had to be turned into searchable text. The pipeline:
+
+1. **Photograph every page.** ~137 phone photos, one per page. (Shot at a slight angle
+   on a desk, which matters later.)
+2. **OCR each page** with Apple Vision (`scripts/ocr.swift`, macOS, free, on-device).
+   It reads each page and sorts the detected text into reading order. One `.txt` per page.
+3. **Clean the text.** OCR sometimes reads letters as look-alike characters from other
+   alphabets (for example "Box" comes out as "вох"). Any non-Latin character in an
+   English book is an error, so they get mapped back to their Latin look-alike.
+4. **Chunk and load** into the `resource_chunks` table, one row per page, tagged to the
+   course, keeping the page's section heading when the OCR caught it
+   (`scripts/ingest_primers.mjs`).
+5. **Embed** every chunk so semantic search works (`modal run deploy/modal_embed.py::backfill`).
+6. **Fix the table/figure pages.** Plain OCR reads multi-column tables out of order and
+   scrambles them. A heuristic flags those pages (lots of short, cell-like lines), and
+   they get re-transcribed by the chat model's **vision** ability, which reads tables in
+   the right order (`deploy/modal_ocr.py`). The clean text replaces the scrambled rows.
+
+The payoff is two things from one source: the chat can quote the book accurately, and
+the app has a readable in-app "textbook" of the primers.
+
 ## Why it is built this way (the decisions you can speak to)
 
 If someone asks "how did you build this?", this is the reasoning behind each choice.
